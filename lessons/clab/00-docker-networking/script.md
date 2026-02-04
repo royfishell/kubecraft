@@ -83,14 +83,14 @@ m3n4o5p6q7r8   none      null      local
 
 ```bash
 # Run two containers on default network
-docker run -d --name web1 nginx
-docker run -d --name web2 nginx
+docker run -d --name web1 alpine sleep 3600
+docker run -d --name web2 alpine sleep 3600
 ```
 
 ```bash
 # Get their IP addresses
-docker inspect web1 --format='{{.NetworkSettings.IPAddress}}'
-docker inspect web2 --format='{{.NetworkSettings.IPAddress}}'
+docker inspect web1 --format='{{.NetworkSettings.Networks.bridge.IPAddress}}'
+docker inspect web2 --format='{{.NetworkSettings.Networks.bridge.IPAddress}}'
 ```
 
 > "They have IPs. Let's test connectivity."
@@ -134,7 +134,7 @@ docker network create app-network
 
 ```bash
 # Run containers on our custom network
-docker run -d --name web --network app-network nginx
+docker run -d --name web --network app-network alpine sleep 3600
 docker run -d --name client --network app-network alpine sleep 3600
 ```
 
@@ -182,7 +182,7 @@ docker network create backend
 
 ```bash
 # Put containers on different networks
-docker run -d --name public-web --network frontend nginx
+docker run -d --name public-web --network frontend alpine sleep 3600
 docker run -d --name database --network backend alpine sleep 3600
 ```
 
@@ -227,11 +227,9 @@ docker network rm frontend backend
 
 **Show file content:**
 ```yaml
-version: "3.8"
-
 services:
   web:
-    image: nginx
+    image: node:alpine
     networks:
       - public
 
@@ -350,5 +348,5 @@ docker compose down
 
 - **3:00** - Emphasize the DNS failure moment
 - **5:00** - Side-by-side showing ping success vs failure
-- **7:00** - Diagram overlay showing multi-network architecture
+- **7:00** - Diagram overlay showing multi-network archqitecture
 - **End** - Preview of containerlab with network devices
