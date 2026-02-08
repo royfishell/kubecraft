@@ -186,6 +186,16 @@ class TestNAT:
             "Enable with: sudo sysctl -w net.ipv4.ip_forward=1"
         )
 
+    def test_forward_rules_exist(self):
+        """FORWARD chain should allow traffic for br-study."""
+        result = run_cmd("sudo iptables -L FORWARD -n")
+        assert "br-study" in result.stdout, (
+            "No FORWARD rule found for br-study. Docker sets FORWARD "
+            "policy to DROP, so you must explicitly allow br-study. "
+            "Add with: sudo iptables -A FORWARD -i br-study -j ACCEPT && "
+            "sudo iptables -A FORWARD -o br-study -j ACCEPT"
+        )
+
     def test_masquerade_rule_exists(self):
         """An iptables masquerade rule for 10.0.0.0/24 should exist."""
         result = run_cmd("sudo iptables -t nat -L POSTROUTING -n")

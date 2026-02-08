@@ -170,7 +170,7 @@ Complete Exercise 2 first (namespaces, bridge, and veth pairs must be in place).
    ```bash
    ip route show default
    ```
-   Note the interface name after `dev` (e.g., `eth0`, `enp0s3`, `wlan0`).
+   Note the interface name after `dev` (e.g., `enp6s0`, `enp0s3`, `wlan0`). On modern Linux this is **not** `eth0` -- use whatever your system shows.
 
 2. Add default routes in each namespace so they send non-local traffic to the bridge:
    ```bash
@@ -183,18 +183,24 @@ Complete Exercise 2 first (namespaces, bridge, and veth pairs must be in place).
    sudo sysctl -w net.ipv4.ip_forward=1
    ```
 
-4. Add a masquerade rule (replace `eth0` with your actual interface from step 1):
+4. Allow forwarding for br-study. Docker sets the FORWARD chain policy to DROP, which blocks our traffic:
    ```bash
-   sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o eth0 -j MASQUERADE
+   sudo iptables -A FORWARD -i br-study -j ACCEPT
+   sudo iptables -A FORWARD -o br-study -j ACCEPT
    ```
 
-5. Test internet access from the namespaces:
+5. Add a masquerade rule (replace `enp6s0` with your actual interface from step 1):
+   ```bash
+   sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o enp6s0 -j MASQUERADE
+   ```
+
+6. Test internet access from the namespaces:
    ```bash
    sudo ip netns exec red ping -c 3 8.8.8.8
    sudo ip netns exec blue ping -c 3 1.1.1.1
    ```
 
-6. Inspect Docker's own NAT rules for comparison:
+7. Inspect Docker's own NAT rules for comparison:
    ```bash
    sudo iptables -t nat -L POSTROUTING -v
    ```
@@ -203,6 +209,7 @@ Complete Exercise 2 first (namespaces, bridge, and veth pairs must be in place).
 
 - What does the masquerade rule actually do to each packet?
 - Why do we need IP forwarding enabled?
+- Why does Docker's FORWARD policy block our traffic, and what does Docker allow instead?
 - Can you find Docker's masquerade rule for the 172.17.0.0/16 subnet?
 
 ### Cleanup
@@ -211,7 +218,9 @@ Complete Exercise 2 first (namespaces, bridge, and veth pairs must be in place).
 sudo ip netns del red
 sudo ip netns del blue
 sudo ip link del br-study
-sudo iptables -t nat -D POSTROUTING -s 10.0.0.0/24 -o eth0 -j MASQUERADE
+sudo iptables -D FORWARD -i br-study -j ACCEPT
+sudo iptables -D FORWARD -o br-study -j ACCEPT
+sudo iptables -t nat -D POSTROUTING -s 10.0.0.0/24 -o enp6s0 -j MASQUERADE
 ```
 
 ---

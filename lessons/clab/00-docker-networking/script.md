@@ -286,11 +286,22 @@ sudo ip netns exec red ping -c 2 10.0.0.254
 
 > **[VOICEOVER]**
 >
-> "Right now, if our red namespace tries to ping 8.8.8.8, it won't work. The packet would leave the namespace, reach the bridge, and then... nothing. The host doesn't know to forward it, and even if it did, the return traffic wouldn't know how to get back.
->
-> We need two things: IP forwarding and masquerading."
+> "Right now, if our red namespace tries to ping 8.8.8.8, it won't work. The packet would leave the namespace, reach the bridge, and then... nothing. We need to set up three things: IP forwarding, firewall rules to allow forwarding, and NAT masquerading."
 
-**Step 1: Add default routes in the namespaces**
+**Step 1: Find your outbound interface**
+
+```bash
+ip route show default
+```
+
+**Expected Output:**
+```
+default via 192.168.1.1 dev enp6s0 proto dhcp metric 100
+```
+
+> "First, we need to know the name of the host's outbound interface -- the one connected to the internet. It's the device name after `dev` in the default route. On modern Linux this is usually something like `enp6s0` or `wlan0`, not `eth0`. Remember this name -- we'll use it in the masquerade rule."
+
+**Step 2: Add default routes in the namespaces**
 
 ```bash
 sudo ip netns exec red ip route add default via 10.0.0.254
@@ -299,7 +310,7 @@ sudo ip netns exec blue ip route add default via 10.0.0.254
 
 > "Now the namespaces know to send non-local traffic to the bridge."
 
-**Step 2: Enable IP forwarding**
+**Step 3: Enable IP forwarding**
 
 ```bash
 sudo sysctl -w net.ipv4.ip_forward=1
@@ -307,18 +318,27 @@ sudo sysctl -w net.ipv4.ip_forward=1
 
 > "This tells the Linux kernel to forward packets between interfaces. Without this, the host drops any packet that isn't addressed to itself."
 
-**Step 3: Add the masquerade rule**
+**Step 4: Allow forwarding for our bridge**
 
 ```bash
-# Replace eth0 with your host's outbound interface (check with: ip route show default)
-sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o eth0 -j MASQUERADE
+sudo iptables -A FORWARD -i br-study -j ACCEPT
+sudo iptables -A FORWARD -o br-study -j ACCEPT
 ```
 
-> "This NAT rule says: any packet from our 10.0.0.0/24 subnet leaving via the host's outbound interface should have its source IP rewritten to the host's IP. Return traffic gets translated back automatically.
->
-> This is exactly what Docker does. If you run `iptables -t nat -L`, you'll see Docker's own masquerade rules for the 172.17.0.0/16 subnet."
+> "This is important. Docker sets the iptables FORWARD chain policy to DROP -- it only allows forwarding for its own networks. Without these rules, our br-study traffic would be silently dropped before it ever reaches the NAT rule. You can check this yourself with `sudo iptables -L FORWARD -v` and you'll see the DROP policy."
 
-**Step 4: Test internet access**
+**Step 5: Add the masquerade rule**
+
+```bash
+# Replace enp6s0 with YOUR outbound interface from step 1
+sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o enp6s0 -j MASQUERADE
+```
+
+> "This NAT rule says: any packet from our 10.0.0.0/24 subnet leaving via the outbound interface should have its source IP rewritten to the host's IP. Return traffic gets translated back automatically.
+>
+> This is exactly what Docker does. If you run `sudo iptables -t nat -L POSTROUTING -v`, you'll see Docker's own masquerade rules for the 172.17.0.0/16 subnet."
+
+**Step 6: Test internet access**
 
 ```bash
 sudo ip netns exec red ping -c 3 8.8.8.8
@@ -327,9 +347,9 @@ sudo ip netns exec red ping -c 3 8.8.8.8
 **Expected Output:**
 ```
 PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
-64 bytes from 8.8.8.8: icmp_seq=1 ttl=117 time=10.2 ms
-64 bytes from 8.8.8.8: icmp_seq=2 ttl=117 time=9.8 ms
-64 bytes from 8.8.8.8: icmp_seq=3 ttl=117 time=9.9 ms
+64 bytes from 8.8.8.8: icmp_seq=1 ttl=112 time=20.5 ms
+64 bytes from 8.8.8.8: icmp_seq=2 ttl=112 time=17.8 ms
+64 bytes from 8.8.8.8: icmp_seq=3 ttl=112 time=16.3 ms
 ```
 
 > "Our hand-built namespace can reach the internet -- just like a Docker container."
@@ -338,8 +358,9 @@ PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
 
 **Key Points:**
 - IP forwarding = kernel will route packets between interfaces
+- FORWARD chain = Docker sets it to DROP, so you must explicitly allow your bridge traffic
 - Masquerade = rewrite source IP for outbound traffic (SNAT)
-- Docker does both of these automatically
+- Docker does all three of these automatically
 
 ---
 
@@ -363,7 +384,9 @@ PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
 sudo ip netns del red
 sudo ip netns del blue
 sudo ip link del br-study
-sudo iptables -t nat -D POSTROUTING -s 10.0.0.0/24 -o eth0 -j MASQUERADE
+sudo iptables -D FORWARD -i br-study -j ACCEPT
+sudo iptables -D FORWARD -o br-study -j ACCEPT
+sudo iptables -t nat -D POSTROUTING -s 10.0.0.0/24 -o enp6s0 -j MASQUERADE
 ```
 
 > "Deleting the namespaces automatically removes the veth pairs that were inside them."

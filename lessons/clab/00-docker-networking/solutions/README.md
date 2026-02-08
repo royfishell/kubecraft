@@ -167,10 +167,10 @@ ip route show default
 
 **Expected output (varies by system):**
 ```
-default via 192.168.1.1 dev eth0 proto dhcp metric 100
+default via 192.168.1.1 dev enp6s0 proto dhcp metric 100
 ```
 
-The interface is `eth0` (use whatever your system shows).
+The interface is `enp6s0` (use whatever your system shows -- on modern Linux this is usually **not** `eth0`).
 
 ```bash
 # 2. Add default routes
@@ -187,25 +187,31 @@ net.ipv4.ip_forward = 1
 ```
 
 ```bash
-# 4. Add masquerade rule (replace eth0 with your interface)
-sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o eth0 -j MASQUERADE
+# 4. Allow forwarding for br-study
+sudo iptables -A FORWARD -i br-study -j ACCEPT
+sudo iptables -A FORWARD -o br-study -j ACCEPT
 ```
 
 ```bash
-# 5. Test internet access
+# 5. Add masquerade rule (replace enp6s0 with your interface)
+sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o enp6s0 -j MASQUERADE
+```
+
+```bash
+# 6. Test internet access
 sudo ip netns exec red ping -c 3 8.8.8.8
 ```
 
 **Expected output:**
 ```
 PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.
-64 bytes from 8.8.8.8: icmp_seq=1 ttl=117 time=10.2 ms
-64 bytes from 8.8.8.8: icmp_seq=2 ttl=117 time=9.8 ms
-64 bytes from 8.8.8.8: icmp_seq=3 ttl=117 time=9.9 ms
+64 bytes from 8.8.8.8: icmp_seq=1 ttl=112 time=20.5 ms
+64 bytes from 8.8.8.8: icmp_seq=2 ttl=112 time=17.8 ms
+64 bytes from 8.8.8.8: icmp_seq=3 ttl=112 time=16.3 ms
 ```
 
 ```bash
-# 6. Compare with Docker's rules
+# 7. Compare with Docker's rules
 sudo iptables -t nat -L POSTROUTING -v
 ```
 
@@ -213,7 +219,7 @@ sudo iptables -t nat -L POSTROUTING -v
 ```
 Chain POSTROUTING (policy ACCEPT)
  pkts bytes target     prot opt in     out     source               destination
-    3   252 MASQUERADE  all  --  any    eth0    10.0.0.0/24          anywhere
+    3   252 MASQUERADE  all  --  any    enp6s0  10.0.0.0/24          anywhere
     0     0 MASQUERADE  all  --  any    !docker0  172.17.0.0/16        anywhere
 ```
 
@@ -228,6 +234,23 @@ It rewrites the source IP address of outbound packets from 10.0.0.x to the host'
 **Why do we need IP forwarding?**
 
 Without `net.ipv4.ip_forward=1`, the Linux kernel drops any packet that arrives on one interface but is destined for another. It only processes packets addressed to its own IPs. IP forwarding tells the kernel to act as a router and forward packets between interfaces.
+
+**Why does Docker's FORWARD policy block our traffic?**
+
+Docker sets the FORWARD chain policy to DROP for security -- it only allows forwarding for traffic on its own networks (docker0 and any custom Docker networks). You can see this with:
+
+```bash
+sudo iptables -L FORWARD -v
+```
+
+```
+Chain FORWARD (policy DROP)
+ pkts bytes target     prot opt in     out     source               destination
+    0     0 DOCKER-USER  all  --  any    any     anywhere             anywhere
+    0     0 DOCKER-FORWARD  all  --  any    any     anywhere             anywhere
+```
+
+Our br-study traffic doesn't match any of Docker's FORWARD rules, so it hits the DROP policy. Adding explicit ACCEPT rules for br-study tells the kernel to allow forwarding for our bridge. Docker does this automatically for its own bridges -- we have to do it manually for ours.
 
 **Docker's masquerade rule:**
 
