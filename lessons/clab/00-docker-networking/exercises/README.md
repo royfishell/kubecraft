@@ -2,6 +2,10 @@
 
 Complete these exercises to reinforce your understanding of the Linux primitives under container networking.
 
+```bash
+cd lessons/clab/00-docker-networking
+```
+
 ## Exercise 1: Inspect Docker's Network Plumbing
 
 **Objective:** Trace the Linux components Docker creates when you run containers.
@@ -41,11 +45,12 @@ Complete these exercises to reinforce your understanding of the Linux primitives
    docker network inspect bridge
    ```
 
-### Questions
+### Deliverables
 
-- What is the IP of the `docker0` bridge? How does it relate to the container's default gateway?
-- How can you match a host-side veth to its container-side eth0? (Hint: start from inside the container)
-- What subnet does Docker use for the default bridge?
+Create a file `exercises/exercise1-answers.md` with:
+- The IP of the `docker0` bridge and how it relates to the container's default gateway
+- A step-by-step explanation of how to match a host-side veth to its container-side eth0 (hint: start from inside the container)
+- The subnet Docker uses for the default bridge
 
 ### Cleanup
 
@@ -140,11 +145,12 @@ docker rm -f c1 c2
    sudo ip netns exec red ping -c 2 10.0.0.254
    ```
 
-### Questions
+### Deliverables
 
+Document in `exercises/exercise2-answers.md`:
 - What happens if you skip bringing up the loopback (`lo`)? Try it and see.
-- What do you see when you run `ip link show master br-study` on the host?
-- How is this different from what Docker does with `docker0`?
+- The output of `ip link show master br-study` on the host, and what each line means
+- A comparison: how is your manual setup different from what Docker does with `docker0`? (Hint: Docker automates these exact steps)
 
 ### Cleanup
 
@@ -205,12 +211,13 @@ Complete Exercise 2 first (namespaces, bridge, and veth pairs must be in place).
    sudo iptables -t nat -L POSTROUTING -v
    ```
 
-### Questions
+### Deliverables
 
-- What does the masquerade rule actually do to each packet?
+Document in `exercises/exercise3-answers.md`:
+- What does the masquerade rule actually do to each packet? (Describe the source IP rewriting)
 - Why do we need IP forwarding enabled?
 - Why does Docker's FORWARD policy block our traffic, and what does Docker allow instead?
-- Can you find Docker's masquerade rule for the 172.17.0.0/16 subnet?
+- The output of `sudo iptables -t nat -L POSTROUTING -v` -- can you find Docker's masquerade rule for 172.17.0.0/16?
 
 ### Cleanup
 
@@ -222,6 +229,84 @@ sudo iptables -D FORWARD -i br-study -j ACCEPT
 sudo iptables -D FORWARD -o br-study -j ACCEPT
 sudo iptables -t nat -D POSTROUTING -s 10.0.0.0/24 -o enp6s0 -j MASQUERADE
 ```
+
+---
+
+## Exercise 4: Break/Fix -- Bridge Down
+
+**Objective:** Diagnose why namespaces lose connectivity when the bridge is down.
+
+### Prerequisites
+
+Complete Exercise 2 first (namespaces, bridge, and veth pairs must be in place).
+
+### Setup (break it)
+
+```bash
+sudo ip link set br-study down
+```
+
+### Symptom
+
+```bash
+sudo ip netns exec red ping -c 2 10.0.0.2
+# FAILS -- no response or "Network is unreachable"
+```
+
+### Your Task
+
+1. Check the bridge state: `ip link show br-study`. What does `state DOWN` mean?
+2. Check if the veth pairs are still attached: `ip link show master br-study`
+3. Fix the bridge and verify ping works again.
+
+### Deliverables
+
+Document:
+- The commands you used to diagnose the problem
+- What "state DOWN" on a bridge means for all attached interfaces
+- Your fix and verification
+
+---
+
+## Exercise 5: Break/Fix -- Missing Masquerade
+
+**Objective:** Diagnose why namespaces can reach each other but not the internet.
+
+### Prerequisites
+
+Complete Exercises 2 and 3 (full NAT setup must be in place).
+
+### Setup (break it)
+
+```bash
+sudo iptables -t nat -D POSTROUTING -s 10.0.0.0/24 -o enp6s0 -j MASQUERADE
+```
+
+(Replace `enp6s0` with your actual outbound interface.)
+
+### Symptom
+
+```bash
+# This works (same subnet, local bridge)
+sudo ip netns exec red ping -c 2 10.0.0.2
+
+# This fails (internet)
+sudo ip netns exec red ping -c 2 -W 3 8.8.8.8
+```
+
+### Your Task
+
+1. Verify that local connectivity still works (red to blue, red to bridge)
+2. Check the NAT table: `sudo iptables -t nat -L POSTROUTING -v -n`. What's missing?
+3. Explain why local traffic works but internet traffic doesn't -- what does masquerade do that local bridging doesn't need?
+4. Fix by re-adding the masquerade rule and verify internet access.
+
+### Deliverables
+
+Explain:
+- Why removing the masquerade rule breaks internet access but not local connectivity
+- What masquerade does to the source IP of outbound packets
+- How return traffic finds its way back to the namespace
 
 ---
 
@@ -283,6 +368,8 @@ pytest tests/ -v
 - [ ] Exercise 1: Inspected Docker's bridge, veth pairs, and container networking
 - [ ] Exercise 2: Built a namespace network from scratch with ping working
 - [ ] Exercise 3: Enabled NAT and reached the internet from a namespace
+- [ ] Exercise 4: Diagnosed and fixed a downed bridge
+- [ ] Exercise 5: Diagnosed and fixed missing masquerade rule
 - [ ] Bonus: Explored Docker Compose's bridge network
 
 ## Next Steps

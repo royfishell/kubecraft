@@ -11,7 +11,7 @@ topology:
     # Standard Alpine Linux host
     host1:
       kind: linux
-      image: alpine:latest
+      image: alpine:3.20
 
   links:
     # Connect router's e1-1 to host's eth1

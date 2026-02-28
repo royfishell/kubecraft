@@ -2,6 +2,10 @@
 
 Complete these exercises to solidify your containerlab skills.
 
+```bash
+cd lessons/clab/01-containerlab-primer
+```
+
 ## Exercise 1: Deploy and Explore
 
 **Objective:** Deploy the lab topology and explore the running environment.
@@ -41,6 +45,7 @@ Create a file `exercises/exercise1-output.md` with:
 - Output of `containerlab inspect`
 - SR Linux version from `show version`
 - List of interfaces from `show interface brief`
+- Your explanation: why is `ethernet-1/1` showing `oper: up` while other ethernet interfaces show `oper: down`?
 
 ---
 
@@ -165,7 +170,7 @@ Create `exercises/resources.md` with:
    ```yaml
    host1:
      kind: linux
-     image: alpine:latest
+     image: alpine:3.20
    ```
 
 3. Deploy and verify both containers are running
@@ -191,6 +196,108 @@ graph LR
 
 - `exercises/mixed-topology.clab.yml`
 - Verification that `eth1` exists in the Alpine container
+
+---
+
+## Exercise 6: Break/Fix -- Container Stopped
+
+**Objective:** Diagnose why a node is unreachable when its container has stopped.
+
+### Setup (break it)
+
+First, make sure the two-node lab is running:
+
+```bash
+cd lessons/clab/01-containerlab-primer
+containerlab deploy -t topology/lab.clab.yml
+```
+
+Now stop one of the containers:
+
+```bash
+docker stop clab-first-lab-srl2
+```
+
+### Symptom
+
+```bash
+# Try to connect to srl2
+docker exec -it clab-first-lab-srl2 sr_cli
+# ERROR: container is not running
+
+# Inspect shows something wrong
+containerlab inspect -t topology/lab.clab.yml
+# srl2 shows state: "exited" instead of "running"
+```
+
+### Your Task
+
+1. **Diagnose:** Run `containerlab inspect` and identify which node is down. Check `docker ps -a --filter name=clab-first-lab` to see stopped containers.
+2. **Fix:** Restart the stopped container and verify it returns to a running state.
+3. **Verify:** Connect to srl2 with `docker exec` and confirm `show interface brief` shows `ethernet-1/1` as up.
+
+### Deliverables
+
+Document:
+- The commands you used to diagnose the problem
+- How you fixed it (hint: `docker start` vs. redeploying the lab)
+- Why `docker ps` alone wouldn't show the stopped container (you need `-a`)
+
+---
+
+## Exercise 7: Break/Fix -- Missing Link
+
+**Objective:** Diagnose why two nodes cannot see each other when a link is missing from the topology.
+
+### Setup (break it)
+
+1. Destroy the current lab:
+   ```bash
+   containerlab destroy -t topology/lab.clab.yml --cleanup
+   ```
+
+2. Create a broken topology file `exercises/broken-topology.clab.yml`:
+   ```yaml
+   name: broken-lab
+
+   topology:
+     nodes:
+       srl1:
+         kind: srl
+         image: ghcr.io/nokia/srlinux:24.10.1
+
+       srl2:
+         kind: srl
+         image: ghcr.io/nokia/srlinux:24.10.1
+
+     links: []
+   ```
+
+3. Deploy the broken topology:
+   ```bash
+   containerlab deploy -t exercises/broken-topology.clab.yml
+   ```
+
+### Symptom
+
+Both containers are running, but:
+
+```bash
+docker exec -it clab-broken-lab-srl1 sr_cli -c "show interface brief"
+# ethernet-1/1 shows "down" (no link partner)
+```
+
+### Your Task
+
+1. **Diagnose:** Both nodes are running, so it's not a container problem. Check `show interface brief` on both nodes -- what's different from the working lab?
+2. **Explain:** Why does `ethernet-1/1` show `oper: down`? What's missing?
+3. **Fix:** Destroy the broken lab, add the missing link to the topology file, and redeploy.
+4. **Verify:** Confirm `ethernet-1/1` is now `oper: up` on both nodes.
+
+### Deliverables
+
+- Your fixed `exercises/broken-topology.clab.yml`
+- Explanation of the difference between a node being "running" and an interface being "up"
 
 ---
 
@@ -221,6 +328,8 @@ pytest tests/ -v
 - [ ] Exercise 3: Generated topology graph and JSON output
 - [ ] Exercise 4: Found documentation and community resources
 - [ ] Exercise 5: Created mixed network/Linux topology
+- [ ] Exercise 6: Diagnosed and fixed a stopped container
+- [ ] Exercise 7: Diagnosed and fixed a missing link
 
 ## Next Steps
 

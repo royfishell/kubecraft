@@ -263,6 +263,77 @@ This masquerades traffic from containers (172.17.0.0/16) going out any interface
 
 ---
 
+## Exercise 4: Break/Fix -- Bridge Down
+
+**Diagnosis:**
+
+```bash
+ip link show br-study
+```
+
+```
+5: br-study: <BROADCAST,MULTICAST> mtu 1500 ...
+    link/ether 42:65:a1:xx:xx:xx brd ff:ff:ff:ff:ff:ff
+```
+
+Notice the flags: `<BROADCAST,MULTICAST>` without `UP`. When the bridge is up, it shows `<BROADCAST,MULTICAST,UP,LOWER_UP>`. A down bridge cannot forward frames between its ports -- it's like unplugging a switch.
+
+The veth pairs are still attached (`ip link show master br-study` still lists them), but traffic can't flow through the bridge.
+
+**Fix:**
+
+```bash
+sudo ip link set br-study up
+```
+
+**Verification:**
+
+```bash
+sudo ip netns exec red ping -c 2 10.0.0.2
+```
+
+**Key lesson:** A Linux bridge must be UP to forward traffic. Even if all veth pairs are correctly attached and all interfaces inside namespaces have IPs, a downed bridge stops all communication. This is the virtual equivalent of a switch losing power.
+
+---
+
+## Exercise 5: Break/Fix -- Missing Masquerade
+
+**Diagnosis:**
+
+```bash
+sudo iptables -t nat -L POSTROUTING -v -n
+```
+
+```
+Chain POSTROUTING (policy ACCEPT)
+ pkts bytes target     prot opt in     out     source               destination
+    0     0 MASQUERADE  all  --  *      !docker0  172.17.0.0/16        0.0.0.0/0
+```
+
+Only Docker's masquerade rule is present. Our rule for 10.0.0.0/24 is gone.
+
+**Why local works but internet doesn't:**
+
+Local traffic (red to blue, red to bridge) stays on the br-study bridge. It never leaves the host, so it never needs NAT. The bridge forwards frames based on MAC addresses -- this is pure Layer 2 switching.
+
+Internet traffic must leave the host via the outbound interface (e.g., enp6s0). Without masquerade, the source IP is 10.0.0.1 -- a private, non-routable address. The ISP's routers don't know how to send replies back to 10.0.0.1, so the traffic is silently dropped. Masquerade rewrites the source IP to the host's public IP, and the kernel tracks the mapping so return traffic gets translated back.
+
+**Fix:**
+
+```bash
+sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o enp6s0 -j MASQUERADE
+```
+
+**Verification:**
+
+```bash
+sudo ip netns exec red ping -c 3 8.8.8.8
+```
+
+**Key lesson:** Masquerade (SNAT) is only needed when traffic crosses a network boundary -- from private addresses to the internet. Local bridge traffic doesn't need NAT because both endpoints are directly reachable at Layer 2.
+
+---
+
 ## Key Takeaways
 
 1. **Network namespaces** are what isolate container networking -- each container gets its own

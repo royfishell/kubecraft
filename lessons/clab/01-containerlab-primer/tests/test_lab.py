@@ -76,9 +76,9 @@ class TestTopologyStructure:
             return yaml.safe_load(f)
 
     def test_has_name(self, topology):
-        """Topology should have a name."""
+        """Topology should have the expected name."""
         assert "name" in topology
-        assert len(topology["name"]) > 0
+        assert topology["name"] == "first-lab"
 
     def test_has_nodes(self, topology):
         """Topology should define nodes."""
@@ -108,6 +108,13 @@ class TestTopologyStructure:
         for i, link in enumerate(links):
             assert "endpoints" in link, f"Link {i} missing 'endpoints'"
             assert len(link["endpoints"]) == 2, f"Link {i} should have exactly 2 endpoints"
+
+    def test_no_latest_tags(self, topology):
+        """No node should use 'latest' image tag."""
+        nodes = topology["topology"]["nodes"]
+        for name, config in nodes.items():
+            image = config.get("image", "")
+            assert "latest" not in image, f"Node {name} uses 'latest' tag -- pin a specific version"
 
 
 class TestLabDeployment:
@@ -146,7 +153,7 @@ class TestLabDeployment:
         containers = result.stdout.strip().split('\n')
         containers = [c for c in containers if c]  # Remove empty strings
 
-        assert len(containers) >= 2, f"Expected at least 2 containers, got: {containers}"
+        assert len(containers) == 2, f"Expected 2 containers, got: {containers}"
 
     def test_inspect_returns_data(self):
         """containerlab inspect should return lab information."""
@@ -182,7 +189,7 @@ class TestLabDeployment:
 
 
 class TestExerciseFiles:
-    """Verify exercise solution files exist (if completed)."""
+    """Verify exercise solution files exist and are valid."""
 
     def test_solutions_directory_exists(self):
         """Solutions directory should exist."""
@@ -196,12 +203,23 @@ class TestExerciseFiles:
 
         for clab_file in solutions_dir.glob("*.clab.yml"):
             with open(clab_file) as f:
-                try:
-                    data = yaml.safe_load(f)
-                    assert data is not None, f"Empty file: {clab_file}"
-                    assert "topology" in data, f"Missing topology key: {clab_file}"
-                except yaml.YAMLError as e:
-                    pytest.fail(f"Invalid YAML in {clab_file}: {e}")
+                data = yaml.safe_load(f)
+                assert data is not None, f"Empty file: {clab_file}"
+                assert "topology" in data, f"Missing topology key: {clab_file}"
+
+    def test_solution_topologies_no_latest_tags(self):
+        """Solution topology files should not use 'latest' image tags."""
+        import yaml
+        solutions_dir = LESSON_DIR / "solutions"
+
+        for clab_file in solutions_dir.glob("*.clab.yml"):
+            with open(clab_file) as f:
+                data = yaml.safe_load(f)
+                if data and "topology" in data and "nodes" in data["topology"]:
+                    for name, config in data["topology"]["nodes"].items():
+                        image = config.get("image", "")
+                        assert "latest" not in image, \
+                            f"{clab_file.name}: node {name} uses 'latest' tag"
 
 
 if __name__ == "__main__":

@@ -20,7 +20,7 @@
 - [ ] Terminal font size increased (14-16pt)
 - [ ] Notifications disabled
 - [ ] Clean terminal: `clear && history -c`
-- [ ] No labs running: `sudo containerlab destroy --all`
+- [ ] No labs running: `containerlab destroy --all`
 
 ---
 

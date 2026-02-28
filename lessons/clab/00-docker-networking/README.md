@@ -123,6 +123,47 @@ A Linux bridge works like a virtual network switch. Docker's `docker0` bridge co
 
 For containers (or namespaces) to reach the internet, the host must forward packets and masquerade the source IP. Docker sets this up automatically with iptables rules. You can do the same manually with `iptables -t nat -A POSTROUTING ... -j MASQUERADE`.
 
+## Common Issues
+
+**Ping between namespaces fails:**
+
+Check each layer bottom-up:
+```bash
+# Are the interfaces UP?
+sudo ip netns exec red ip link show veth-r
+
+# Is the bridge UP?
+ip link show br-study
+
+# Are IPs assigned?
+sudo ip netns exec red ip addr show veth-r
+
+# Are veth pairs attached to the bridge?
+ip link show master br-study
+```
+
+**Internet access from namespaces fails but local ping works:**
+
+This is almost always a missing FORWARD rule or masquerade rule:
+```bash
+# Check FORWARD chain (Docker sets policy to DROP)
+sudo iptables -L FORWARD -v -n
+
+# Check masquerade rule exists
+sudo iptables -t nat -L POSTROUTING -v -n
+```
+
+**"Operation not permitted" errors:**
+
+Namespace operations require root. Use `sudo` for all `ip netns exec` commands:
+```bash
+# Wrong
+ip netns exec red ping 10.0.0.2
+
+# Correct
+sudo ip netns exec red ping 10.0.0.2
+```
+
 ## Exercises
 
 Complete the exercises in [exercises/README.md](exercises/README.md).

@@ -172,7 +172,7 @@ docker ps | grep clab
 
 ```mermaid
 graph LR
-    srl1[srl1<br/>SR Linux] -- e1-1 --- e1-1 --- srl2[srl2<br/>SR Linux]
+    srl1[srl1<br/>SR Linux<br/>24.10.1] -- "e1-1 ---- e1-1" --- srl2[srl2<br/>SR Linux<br/>24.10.1]
 ```
 
 ## Files in This Lesson
@@ -233,6 +233,15 @@ docker ps | grep clab
 
 # Check container logs
 docker logs clab-first-lab-srl1
+```
+
+**Interfaces show "down" after deploy:**
+
+SR Linux takes 15-30 seconds to fully boot. Wait and re-check:
+```bash
+# Wait, then verify
+sleep 20
+docker exec -it clab-first-lab-srl1 sr_cli -c "show interface brief"
 ```
 
 ## What's Next
