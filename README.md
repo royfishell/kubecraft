@@ -1,90 +1,97 @@
-# Network Fundamentals Lab
+<p align="center">
+  <img src="https://img.shields.io/badge/platform-Linux-informational?style=flat&logo=linux&logoColor=white" alt="Linux">
+  <img src="https://img.shields.io/badge/containerlab-network%20labs-blue?style=flat&logo=docker&logoColor=white" alt="Containerlab">
+  <img src="https://img.shields.io/badge/SR%20Linux-24.10.1-orange?style=flat&logo=nokia&logoColor=white" alt="SR Linux">
+  <img src="https://img.shields.io/badge/license-MIT-green?style=flat" alt="License">
+  <a href="https://github.com/drewelliott/kubecraft/actions/workflows/sync-student-branch.yml">
+    <img src="https://github.com/drewelliott/kubecraft/actions/workflows/sync-student-branch.yml/badge.svg?branch=instructor" alt="Sync Status">
+  </a>
+</p>
 
-A hands-on training series for DevOps engineers to learn networking fundamentals using containerlab and GitOps principles.
+# Kubecraft: Network Fundamentals for DevOps Engineers
 
-## About This Course
+Hands-on networking labs built on [containerlab](https://containerlab.dev) -- real network operating systems running in containers, configured with real automation tools.
 
-This course is designed for junior DevOps engineers who are comfortable with Docker, Linux, and Kubernetes but want to build stronger networking skills. Through hands-on labs using containerlab, you'll learn to:
+## Who This Is For
 
-- **Troubleshoot network issues** - Diagnose connectivity problems, read routing tables, trace paths
-- **Design network topologies** - Create lab environments for testing network changes
-- **Automate network configuration** - Apply GitOps principles to network infrastructure
+You know Docker, Linux, and Kubernetes. You don't know (or want to know more about) networking. This course bridges that gap through labs you can run on your own machine -- no cloud accounts, no expensive equipment, no licenses.
 
-## Prerequisites
-
-Before starting this course, you should have completed:
-
-- DevPods/Dev Containers fundamentals course
-- Kubernetes basics course
-- Familiarity with Docker and Linux command line
-
-See [Prerequisites](docs/getting-started/prerequisites.md) for detailed requirements.
-
-## Course Structure
-
-| Lesson | Title | Topics |
-|--------|-------|--------|
-| 0 | [Docker Networking Fundamentals](lessons/clab/00-docker-networking/) | Network drivers, namespaces, Docker Compose |
-| 1 | [Containerlab Primer](lessons/clab/01-containerlab-primer/) | Installation, topology files, first lab |
-| 2 | IP Fundamentals & Connectivity | IP addressing, subnets, ping/traceroute |
-| 3 | Routing Basics | Static routes, routing tables, Ansible |
-| 4 | Data Center - Spine-Leaf | BGP, EVPN-VXLAN, Terraform |
-| 5 | Cloud Provider Patterns | VPC simulation, hybrid connectivity |
-| 6 | Edge & WAN Networking | Site-to-site, NAT, network services |
-| 7 | Network Troubleshooting | Diagnostics, packet capture, pytest |
-| 8 | Capstone Project | Full GitOps pipeline |
-
-## Getting Started
-
-1. **Fork this repository** - See [Fork Workflow](docs/getting-started/fork-workflow.md)
-2. **Set up DevPod** - See [DevPod Setup](docs/getting-started/devpod-setup.md)
-3. **Start with Lesson 0** - Navigate to `lessons/clab/00-docker-networking/`
-
-## How to Use This Repo
-
-Each lesson contains:
+## What You'll Learn
 
 ```
-lessons/clab/XX-lesson-name/
-├── README.md           # Lesson objectives and outline
-├── .devcontainer/      # DevPod configuration
-├── topology/           # Containerlab topology files
-├── configs/            # Device configurations
-├── exercises/          # Hands-on exercises
-├── solutions/          # Exercise solutions
-├── tests/              # Automated validation
-└── transcript.md       # Video transcript
+Lesson 0   Docker Networking         Linux bridges, namespaces, veth pairs, NAT
+Lesson 1   Containerlab Primer       Topology files, deploy/destroy, SR Linux CLI
+Lesson 2   IP Fundamentals           Addressing, subnets, Ansible + Jinja2 automation
+Lesson 3   Routing Basics            Static routes, routing tables            (coming soon)
+Lesson 4   Data Center Spine-Leaf    BGP, EVPN-VXLAN, Terraform              (coming soon)
+Lesson 5   Cloud Provider Patterns   VPC simulation, hybrid connectivity     (coming soon)
+Lesson 6   Edge & WAN                Site-to-site, NAT, network services     (coming soon)
+Lesson 7   Network Troubleshooting   Diagnostics, packet capture, pytest     (coming soon)
+Lesson 8   Capstone Project          Full GitOps pipeline                    (coming soon)
 ```
 
-### Recommended Workflow
+Each lesson introduces a new automation tool alongside networking concepts -- Git, Ansible, Terraform, ArgoCD patterns, pytest -- so you build DevOps muscle memory, not just networking knowledge.
 
-1. Watch the video lesson
-2. Read the lesson README
-3. Complete the exercises in `exercises/`
-4. Run the tests to validate your work
-5. Compare with solutions if stuck
+> **[Browse the full course outline and lesson details](lessons/clab/)**
 
-## Quick Reference
+## Quick Start
 
-- [Containerlab Cheatsheet](docs/reference/containerlab-cheatsheet.md)
-- [SR Linux CLI Cheatsheet](docs/reference/srlinux-cheatsheet.md)
-- [Network Commands Reference](docs/reference/network-commands.md)
-- [Troubleshooting Guide](docs/reference/troubleshooting.md)
+### 1. Fork and clone
 
-## External Resources
+```bash
+gh repo fork drewelliott/kubecraft --clone
+cd kubecraft
+```
 
-- [Containerlab Documentation](https://containerlab.dev)
-- [Containerlab Discord](https://discord.gg/vAyddtaEV9)
-- [Nokia SR Linux Documentation](https://documentation.nokia.com/srlinux/)
-- [GitHub: containerlab topics](https://github.com/topics/containerlab)
+### 2. Install prerequisites
+
+- **Docker** -- running and accessible
+- **containerlab** -- [install guide](https://containerlab.dev/install/)
+- **SR Linux image** -- `docker pull ghcr.io/nokia/srlinux:24.10.1`
+
+> See [full prerequisites](docs/getting-started/prerequisites.md) and [Linux setup guide](docs/getting-started/linux-setup.md) for details.
+
+### 3. Start learning
+
+```bash
+cd lessons/clab/00-docker-networking
+```
+
+Each lesson has a README with objectives, exercises, solutions, and automated tests. Work through them in order.
+
+## Reference
+
+| Resource | Description |
+|----------|-------------|
+| [Containerlab Cheatsheet](docs/reference/containerlab-cheatsheet.md) | Deploy, inspect, destroy, graph |
+| [SR Linux CLI Cheatsheet](docs/reference/srlinux-cheatsheet.md) | Interface config, show commands, modes |
+| [Network Commands](docs/reference/network-commands.md) | ping, traceroute, ip, tcpdump |
+| [Troubleshooting Guide](docs/reference/troubleshooting.md) | Common issues and fixes |
+| [Glossary](docs/resources/glossary.md) | Networking terms defined |
+
+## How It Works
+
+Each lesson follows the same pattern:
+
+1. **Read** the lesson README for concepts and objectives
+2. **Deploy** the lab with `containerlab deploy`
+3. **Complete** the exercises (including break/fix troubleshooting)
+4. **Validate** your work with `pytest tests/ -v`
+5. **Destroy** the lab and commit your answers
+
+Solutions are provided. Tests are provided. The only way to fail is to not try.
 
 ## Contributing
 
-This repo is designed for learning. If you find issues or have suggestions:
-
-1. Open an issue describing the problem or suggestion
-2. For exercise submissions, follow the [Contributing Guide](CONTRIBUTING.md)
+Found a bug? Have a suggestion? [Open an issue](https://github.com/drewelliott/kubecraft/issues) or see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-This training material is provided for educational purposes.
+This training material is provided for educational purposes. See [LICENSE](LICENSE) for details.
+
+---
+
+<p align="center">
+  <a href="https://containerlab.dev"><img src="https://img.shields.io/badge/powered%20by-containerlab-blue?style=for-the-badge" alt="Powered by containerlab"></a>
+  <a href="https://learn.srlinux.dev"><img src="https://img.shields.io/badge/runs-Nokia%20SR%20Linux-orange?style=for-the-badge" alt="Nokia SR Linux"></a>
+</p>
