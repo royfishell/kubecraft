@@ -188,7 +188,7 @@ class TestNAT:
 
     def test_forward_rules_exist(self):
         """FORWARD chain should allow traffic for br-study."""
-        result = run_cmd("sudo iptables -L FORWARD -n")
+        result = run_cmd("sudo iptables -L FORWARD -v -n")
         assert "br-study" in result.stdout, (
             "No FORWARD rule found for br-study. Docker sets FORWARD "
             "policy to DROP, so you must explicitly allow br-study. "
