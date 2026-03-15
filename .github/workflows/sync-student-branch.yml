@@ -81,10 +81,12 @@ jobs:
           # Previous main tip is also a parent (for linear main history)
           MAIN_TIP=$(git rev-parse --verify refs/remotes/origin/main 2>/dev/null || true)
 
-          # Check if tree actually changed
+          # Check if tree AND parentage are both unchanged
           if [ -n "$MAIN_TIP" ]; then
             OLD_TREE=$(git rev-parse "${MAIN_TIP}^{tree}" 2>/dev/null || true)
-            if [ "$NEW_TREE" = "$OLD_TREE" ]; then
+            # Check if instructor HEAD is already a parent of main tip
+            ALREADY_PARENT=$(git rev-parse "${MAIN_TIP}^2" 2>/dev/null || true)
+            if [ "$NEW_TREE" = "$OLD_TREE" ] && [ "$ALREADY_PARENT" = "$INSTRUCTOR_HEAD" ]; then
               echo "No changes to sync"
               exit 0
             fi
