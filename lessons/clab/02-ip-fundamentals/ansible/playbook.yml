@@ -22,7 +22,7 @@
         url_password: NokiaSrl1!
         force_basic_auth: true
         body_format: json
-        body: "{{ lookup('template', 'templates/srl_interfaces.json.j2') }}"
+        body: "{{ lookup('template', 'templates/srl_interfaces.json.j2') | from_json }}"
         status_code: 200
       register: config_result
 
