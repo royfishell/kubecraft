@@ -114,12 +114,19 @@ Complete these exercises to understand how BGP replaces static routes with dynam
    docker exec -it clab-dynamic-routing-bgp-srl2 sr_cli -c "show network-instance default protocols bgp routes ipv4 summary"
    ```
 
+7. Inspect the best path detail for host3's subnet to see why BGP chose the direct path:
+   ```bash
+   docker exec -it clab-dynamic-routing-bgp-srl2 sr_cli -c "show network-instance default protocols bgp routes ipv4 prefix 10.1.5.0/24 detail"
+   ```
+   Look at the AS path for each received path. The best path algorithm checks Local Preference first (equal), then AS Path Length (shorter wins).
+
 Note: In lesson 03, adding a cable accomplished nothing without adding static routes. With BGP, adding a cable and a peering session changes the forwarding path within seconds.
 
 ### Deliverables
 
 - Before/after traceroute output
-- Explanation of AS path selection
+- BGP route detail showing two paths with different AS path lengths
+- Explanation of which best path algorithm step decided the winner
 
 ---
 
@@ -161,14 +168,14 @@ docker exec clab-dynamic-routing-bgp-host3 ping -c 3 10.1.1.2
 
 2. Look at received vs sent route counts. srl3 receives routes (it can reach out) but sends 0 (nobody can reach it).
 
-3. Fix by re-adding the export policy:
+3. Fix by re-adding both export policies:
    ```bash
    docker exec -it clab-dynamic-routing-bgp-srl3 sr_cli
    ```
    Inside SR Linux:
    ```
    enter candidate
-   set / network-instance default protocols bgp group ebgp-peers export-policy [export-connected]
+   set / network-instance default protocols bgp group ebgp-peers export-policy [export-connected export-bgp]
    commit now
    exit
    ```
