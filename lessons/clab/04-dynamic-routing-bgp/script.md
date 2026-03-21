@@ -75,31 +75,25 @@
 >
 > Third, session states. BGP peers go through a state machine: Idle, Connect, OpenSent, OpenConfirm, Established. Established is the goal -- that means routes are flowing. If you see a session stuck in Active or Connect, something is wrong: check the IP addresses, the ASN configuration, and whether the peer is reachable.
 >
-> And here's the trap that catches everyone on SR Linux: export policy. SR Linux is secure by default -- BGP advertises nothing unless you explicitly allow it. You need a routing policy that matches the routes you want to share, and you apply that policy to your peer-group. Without it, sessions come up Established, but the routing table stays empty. Zero routes exchanged."
+> And here's the trap that catches everyone on SR Linux: routing policies. SR Linux is secure by default -- it won't accept OR advertise BGP routes unless you explicitly allow it. You need both an import policy and an export policy.
+>
+> In our lab, we use three policies. First, `import-all` -- this simply accepts all received routes. Second, `export-connected` -- this matches directly connected subnets and advertises them. Third, `export-bgp` -- this matches routes learned via BGP and re-advertises them to other peers.
+>
+> The interesting part is how these chain together. When you apply multiple export policies to a peer-group, SR Linux evaluates them in order. `export-connected` has a default-action of `next-policy` -- if a route doesn't match the 'local protocol' statement, it gets passed to the next policy instead of being rejected. `export-bgp` then checks if it's a BGP-learned route. This gives you modular, composable policies instead of one giant rule."
 
-**Visual:** BGP state machine diagram, export policy config on screen
+**Visual:** BGP state machine diagram, policy chain flow on screen
 
-```json
-{
-  "path": "/routing-policy/policy[name=export-connected]",
-  "value": {
-    "default-action": {"policy-result": "reject"},
-    "statement": [
-      {
-        "name": "10",
-        "match": {"protocol": "local"},
-        "action": {"policy-result": "accept"}
-      }
-    ]
-  }
-}
-```
+> "One more concept before we start configuring. When a router learns the same prefix from multiple peers, how does it choose? BGP has a best path algorithm. The key steps in order: highest Local Preference wins, then shortest AS Path, then lowest origin type, then lowest MED, then eBGP over iBGP, and finally lowest router ID as a tiebreaker.
+>
+> In our lab, the one that matters most is AS Path Length. When srl2 learns a route to host3's subnet from both srl1 and srl3, the direct path through srl3 has one AS hop while the path through srl1 has two. Shorter AS path wins. You'll see this in action in the exercises."
 
 **Key Points:**
 - AS = administrative domain, each router gets its own AS (eBGP)
 - Peering is explicit -- both sides must be configured
 - Session states: Idle -> Connect -> OpenSent -> OpenConfirm -> Established
-- SR Linux default-deny: must create export policy or no routes are advertised
+- SR Linux default-deny: must create import AND export policies
+- Policy chaining: `next-policy` default-action passes unmatched routes to the next policy
+- Best path algorithm: Local Pref > AS Path Length > Origin > MED > eBGP/iBGP > Router ID
 
 **Transition:** "Now let's talk about how we'll push this config to the routers."
 
@@ -172,7 +166,7 @@ gnmic -a clab-dynamic-routing-bgp-srl3:57400 -u admin -p NokiaSrl1! \
   --skip-verify -e json_ietf set --request-file gnmic/configs/srl3-bgp.json
 ```
 
-> "Three commands, three routers configured. Each payload creates the export policy, the peer-group, and the BGP neighbors. Let's check the sessions."
+> "Three commands, three routers configured. Each payload creates three routing policies -- import-all, export-connected, and export-bgp -- then enables BGP with the peer-group and neighbors. Let's check the sessions."
 
 ```bash
 docker exec -it clab-dynamic-routing-bgp-srl1 sr_cli -c \
@@ -241,7 +235,7 @@ docker exec -it clab-dynamic-routing-bgp-srl2 sr_cli -c \
 docker exec clab-dynamic-routing-bgp-host2 traceroute 10.1.5.2
 ```
 
-> "Two hops instead of three. BGP chose the shorter AS path automatically. The route through srl1 crosses two autonomous systems -- AS 65001 then AS 65003. The direct route to srl3 crosses one -- just AS 65003. BGP prefers the shorter AS path. No manual intervention required."
+> "Two hops instead of three. This is the BGP best path algorithm in action. srl2 now has two routes to host3's subnet. The old path through srl1 has an AS path of [65001, 65003] -- two hops. The new direct path has an AS path of [65003] -- one hop. Local Preference and Origin are equal, so step 2 of the algorithm breaks the tie: shortest AS path wins. No manual intervention required."
 
 **Visual:** Terminal with traceroute output, before and after comparison
 
@@ -254,9 +248,9 @@ docker exec clab-dynamic-routing-bgp-host2 traceroute 10.1.5.2
 > "Let's recap:
 >
 > - BGP replaces manual route management with automatic route exchange between routers.
-> - Export policies on SR Linux control what gets advertised -- without one, nothing is shared.
+> - SR Linux is default-deny: you need both import and export policies, and you can chain export policies using `next-policy`.
 > - gNMIc pushes structured config via gRPC -- no templates, no CLI string parsing.
-> - When the network topology changes, BGP adapts automatically. Shorter AS path wins."
+> - When the network topology changes, BGP's best path algorithm adapts automatically. In our lab, shorter AS path won -- but the algorithm checks Local Preference, Origin, MED, and more before it gets there."
 
 ---
 
