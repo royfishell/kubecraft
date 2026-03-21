@@ -50,7 +50,37 @@ BGP (Border Gateway Protocol) is the routing protocol that runs the internet. In
 | OpenConfirm | OPEN received, waiting for KEEPALIVE |
 | Established | Peers are up, exchanging routes |
 
-**Export Policy (SR Linux default-deny):** SR Linux does not advertise any routes by default. You must create an explicit export policy that matches the routes you want to share. Without this, sessions come up but no routes are exchanged -- the most common BGP debugging trap on SR Linux.
+**Routing Policies (SR Linux default-deny):** SR Linux does not accept or advertise any BGP routes by default. You must create explicit policies:
+
+- **Import policy:** Controls which received routes are accepted into the routing table. Without one, received routes are rejected.
+- **Export policy:** Controls which routes are advertised to peers. Without one, no routes are shared.
+
+In this lab, we use three policies chained together:
+
+| Policy | Purpose | Default Action |
+|--------|---------|----------------|
+| `import-all` | Accept all received routes | accept |
+| `export-connected` | Advertise directly connected subnets | next-policy |
+| `export-bgp` | Re-advertise BGP-learned routes | reject |
+
+**Policy chaining:** When a peer-group has multiple export policies (`[export-connected, export-bgp]`), SR Linux evaluates them in order. If a route matches a statement with `accept`, it's advertised. If it doesn't match any statement and the default-action is `next-policy`, it passes to the next policy in the chain. If the default-action is `reject`, the route is dropped. This lets you build modular, composable policies instead of one monolithic rule set.
+
+### BGP Best Path Algorithm
+
+When a router receives the same prefix from multiple peers, BGP uses a decision process to select the best path. The simplified algorithm (in order of priority):
+
+| Step | Attribute | Rule | In This Lab |
+|------|-----------|------|-------------|
+| 1 | Local Preference | Highest wins | Not set (default 100) |
+| 2 | AS Path Length | Shortest wins | Exercise 2 demonstrates this |
+| 3 | Origin | IGP (i) > EGP (e) > incomplete (?) | All routes are IGP |
+| 4 | MED | Lowest wins (from same neighbor AS) | Not set |
+| 5 | eBGP vs iBGP | eBGP preferred | All peers are eBGP |
+| 6 | Router ID | Lowest wins (tiebreaker) | Only used if everything else ties |
+
+In Exercise 2, when srl2 receives 10.1.5.0/24 from both srl1 (AS path: [65001, 65003]) and srl3 (AS path: [65003]), steps 1, 3, 4, and 5 are equal. Step 2 breaks the tie -- the direct path through srl3 has a shorter AS path (1 hop vs 2 hops), so BGP selects it automatically.
+
+You can see these attributes in the output of `show network-instance default protocols bgp routes ipv4 prefix <prefix> detail`. The `MED is -, No LocalPref` line means those attributes are at their defaults and not influencing the decision.
 
 ### 3. Introducing gNMIc (2 min)
 

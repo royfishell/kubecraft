@@ -63,7 +63,15 @@ $ gnmic -a clab-dynamic-routing-bgp-srl1:57400 -u admin -p NokiaSrl1! \
   "results": [
     {
       "operation": "UPDATE",
+      "path": "routing-policy/policy[name=import-all]"
+    },
+    {
+      "operation": "UPDATE",
       "path": "routing-policy/policy[name=export-connected]"
+    },
+    {
+      "operation": "UPDATE",
+      "path": "routing-policy/policy[name=export-bgp]"
     },
     {
       "operation": "UPDATE",
@@ -73,7 +81,11 @@ $ gnmic -a clab-dynamic-routing-bgp-srl1:57400 -u admin -p NokiaSrl1! \
 }
 ```
 
-Repeat for srl2 and srl3 with their respective config files. Each config creates the `export-connected` routing policy and enables BGP with the appropriate AS number and neighbors.
+Repeat for srl2 and srl3 with their respective config files. Each config creates three routing policies and enables BGP:
+
+- **`import-all`** -- accepts all received routes (SR Linux default-deny requires an explicit import policy)
+- **`export-connected`** -- matches directly connected subnets (`protocol: local`) and advertises them; unmatched routes pass to the next policy via `default-action: next-policy`
+- **`export-bgp`** -- matches BGP-learned routes and re-advertises them to other peers, enabling transit routing through the hub
 
 **Step 7: BGP neighbors all Established.**
 
@@ -242,16 +254,24 @@ traceroute to 10.1.5.2 (10.1.5.2), 30 hops max, 60 byte packets
 
 The path is now host2 -> srl2 (10.1.4.1) -> srl3 (10.1.6.2) -> host3 (10.1.5.2). Two router hops -- srl1 is bypassed entirely.
 
-**Why BGP chose the direct path:** BGP path selection prefers shorter AS paths. Before the new link, srl2's only route to 10.1.5.0/24 was through srl1:
+**Why BGP chose the direct path:** BGP uses a best path algorithm to select between multiple routes to the same prefix. The algorithm evaluates attributes in strict order:
 
-- **Old path AS path:** [65001, 65003] -- the route was learned from srl1 (AS 65001), who learned it from srl3 (AS 65003). Two AS hops.
-- **New path AS path:** [65003] -- the route was learned directly from srl3 (AS 65003). One AS hop.
+| Step | Attribute | Old Path (via srl1) | New Path (via srl3) |
+|------|-----------|---------------------|---------------------|
+| 1 | Local Preference | default (100) | default (100) |
+| 2 | **AS Path Length** | **[65001, 65003] = 2 hops** | **[65003] = 1 hop** |
+| 3 | Origin | IGP (i) | IGP (i) |
+| 4 | MED | not set | not set |
+| 5 | eBGP vs iBGP | eBGP | eBGP |
+| 6 | Router ID | n/a (already decided) | n/a |
 
-BGP prefers the path with fewer AS hops, so the direct route through srl3 wins automatically. No manual route changes were needed -- BGP recalculated the best path the moment the new session came up.
+Step 1 is a tie (both use default Local Preference). Step 2 breaks it -- the direct path has a shorter AS path (1 hop vs 2 hops), so BGP selects it. Steps 3-6 are never reached.
+
+You can verify this with `show network-instance default protocols bgp routes ipv4 prefix 10.1.5.0/24 detail` on srl2. The output shows `MED is -, No LocalPref` (both at defaults) and the AS path for each received route.
 
 In lesson 03, adding a cable accomplished nothing. The physical link existed, but without manually adding static routes on both srl2 and srl3, it sat idle. With BGP, the new link was automatically discovered and traffic shifted within seconds. This is the fundamental difference between static and dynamic routing: dynamic protocols react to topology changes on their own.
 
-**Key lesson:** BGP path selection prefers shorter AS paths. Adding a direct link between two routers creates a shorter AS path that BGP automatically prefers over the longer path through the hub. No manual intervention is required.
+**Key lesson:** BGP's best path algorithm selected the direct path because it has a shorter AS path. In this lab, AS Path Length is the deciding factor because all other attributes (Local Preference, Origin, MED) are equal. In production networks, operators use Local Preference and MED to influence path selection beyond what AS path length provides.
 
 ---
 
@@ -288,7 +308,7 @@ A:srl3# show network-instance default protocols bgp neighbor 10.1.3.1 detail
 | Session state: established                                          |
 | Last state: established                                             |
 | Export policy: --                                                   |
-| Import policy: --                                                   |
+| Import policy: ['import-all']                                       |
 |                                                                     |
 | Messages:                                                           |
 |   Sent:          12    Received:      14                            |
@@ -300,15 +320,15 @@ A:srl3# show network-instance default protocols bgp neighbor 10.1.3.1 detail
 
 The critical fields: `Export policy: --` (no export policy) and `Sent: 0` (srl3 is advertising zero routes). The session is `established` -- the TCP connection and BGP OPEN/KEEPALIVE exchange are working perfectly. The problem is in the UPDATE messages: srl3 has nothing to announce because the export policy was deleted.
 
-**Why this happens:** SR Linux is secure by default. BGP sessions use a default-deny model for route export. Without an explicit export policy, a router receives routes from its peers (it can learn about the world) but advertises nothing back (the world cannot learn about it). The `export-connected` policy we created earlier matched `protocol local` (directly connected subnets) and accepted them for advertisement. Deleting that policy means srl3's connected routes (10.1.3.0/24 and 10.1.5.0/24) are never placed into UPDATE messages.
+**Why this happens:** SR Linux is secure by default. BGP sessions use a default-deny model for route export. Without an explicit export policy, a router receives routes from its peers (it can learn about the world) but advertises nothing back (the world cannot learn about it). The `export-connected` and `export-bgp` policies we created earlier formed a chain: `export-connected` matched directly connected subnets and advertised them, passing unmatched routes to `export-bgp` via `next-policy`; `export-bgp` then matched BGP-learned routes. Deleting both policies means srl3's connected routes (10.1.3.0/24 and 10.1.5.0/24) and any transit routes are never placed into UPDATE messages.
 
 **Why the asymmetry exists:** srl3 still receives routes from srl1 and srl2 because their export policies are intact -- they are happily advertising their subnets. So srl3 has a full routing table and host3 can reach everything. But srl1 and srl2 have no routes to 10.1.3.0/24 or 10.1.5.0/24 because srl3 is advertising nothing. From their perspective, those subnets do not exist.
 
-**Fix (re-add the export policy):**
+**Fix (re-add both export policies):**
 
 ```
 A:srl3# enter candidate
-set / network-instance default protocols bgp group ebgp-peers export-policy [export-connected]
+set / network-instance default protocols bgp group ebgp-peers export-policy [export-connected export-bgp]
 commit now
 ```
 
@@ -606,8 +626,8 @@ After deleting the static route, the BGP route (with the correct next-hop 10.1.2
 
 1. **Dynamic routing replaces manual route management with automatic route exchange** -- routers learn about remote subnets from their BGP peers instead of relying on hand-configured static routes
 2. **BGP sessions use explicit peering** -- you must configure both sides with matching AS numbers and reachable peer addresses before routes can flow
-3. **Export policies control what gets advertised** -- SR Linux default-deny means no routes are shared without a policy; a session can be Established with zero routes exchanged
-4. **BGP path selection prefers shorter AS paths** -- adding a direct link between two routers creates a shorter AS path that BGP automatically prefers, shifting traffic without manual intervention
+3. **SR Linux is default-deny for both import and export** -- you need an import policy to accept received routes and export policies to advertise them; export policies can be chained using `next-policy` for modular, composable route filtering
+4. **BGP's best path algorithm selects between competing routes** -- it evaluates Local Preference, AS Path Length, Origin, MED, eBGP/iBGP preference, and Router ID in strict order; in this lab, AS Path Length was the deciding factor because all other attributes were equal
 5. **Dynamic routing self-heals** -- link failures trigger automatic rerouting through alternate paths; the same failure that permanently broke static routing in lesson 03 was automatically recovered here
 6. **BGP session states matter** -- Established is the only healthy state; Active and Connect indicate configuration mismatches despite their misleading names
 7. **Administrative distance determines route priority** -- static routes (distance 5) beat BGP routes (170) on SR Linux; stale static routes silently override correct BGP routes, and the diagnostic clue is a received-vs-active route count mismatch
