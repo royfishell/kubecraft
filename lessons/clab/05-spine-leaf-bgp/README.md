@@ -177,7 +177,24 @@ Convention: routers get `.1`, hosts get `.2`.
 
 Total unique BGP sessions: 8 (4 leaves x 2 spines)
 
-All routers use export policy `export-connected` (matches protocol local, accepts).
+### Routing Policies
+
+The gNMIc config files create three policies chained as `["export-connected", "export-bgp"]` with `import-all`:
+
+| Policy | Match | Default Action | Purpose |
+|--------|-------|----------------|---------|
+| `import-all` | -- | accept | Accept all routes from peers |
+| `export-connected` | protocol local + prefix-set `host-subnets` | next-policy | Advertise connected host /24 subnets only |
+| `export-bgp` | protocol bgp | reject | Re-advertise BGP-learned routes |
+
+A `host-subnets` prefix-set (`10.20.0.0/16 mask-length-range 24..24`) on `export-connected` filters out /31 fabric link prefixes -- only host subnets belong in BGP. The /31 links are already known via direct connection on each router.
+
+### BGP Multipath (ECMP)
+
+SR Linux defaults to a single best path per prefix (`maximum-paths: 1`). To enable ECMP across spines, each router's `ipv4-unicast` address family sets `multipath maximum-paths` to allow multiple equal-cost next-hops:
+
+- **Leaves:** `maximum-paths: 2` (one path per spine)
+- **Spines:** `maximum-paths: 4` (one path per leaf)
 
 ## Why This Matters for Kubernetes
 
@@ -268,8 +285,21 @@ docker exec -it clab-spine-leaf-bgp-spine1 sr_cli -c "show interface ethernet-1/
 # Verify both spines have Established sessions with the leaf
 docker exec -it clab-spine-leaf-bgp-leaf1 sr_cli -c "show network-instance default protocols bgp neighbor"
 
-# Check that ECMP is enabled (SR Linux enables it by default for BGP)
+# Check that multipath is configured (SR Linux defaults to maximum-paths 1)
+docker exec -it clab-spine-leaf-bgp-leaf1 sr_cli -c "info network-instance default protocols bgp afi-safi ipv4-unicast multipath"
+
+# Verify ECMP in the routing table (look for "ECMP routes" count > 0)
 docker exec -it clab-spine-leaf-bgp-leaf1 sr_cli -c "show network-instance default route-table ipv4-unicast summary"
+```
+
+**BGP sessions Established but no routes learned (empty routing table):**
+```bash
+# SR Linux default-deny -- check that import-policy is set on the peer group
+docker exec -it clab-spine-leaf-bgp-leaf1 sr_cli -c "info network-instance default protocols bgp group spines"
+
+# Check policy chain -- if export-connected uses default-action reject instead of
+# next-policy, BGP-learned routes never reach the export-bgp policy
+docker exec -it clab-spine-leaf-bgp-leaf1 sr_cli -c "info routing-policy policy export-connected"
 ```
 
 **Lab won't deploy (resource issues):**
