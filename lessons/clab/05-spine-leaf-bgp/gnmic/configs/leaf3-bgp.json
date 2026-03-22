@@ -20,7 +20,7 @@
     {
       "path": "/routing-policy/policy[name=export-connected]",
       "value": {
-        "default-action": { "policy-result": "reject" },
+        "default-action": { "policy-result": "next-policy" },
         "statement": [
           {
             "name": "10",
@@ -52,7 +52,10 @@
         "afi-safi": [
           {
             "afi-safi-name": "ipv4-unicast",
-            "admin-state": "enable"
+            "admin-state": "enable",
+            "multipath": {
+              "maximum-paths": 2
+            }
           }
         ],
         "group": [

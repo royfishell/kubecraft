@@ -25,13 +25,18 @@ Complete these exercises to understand how CLOS spine-leaf fabrics provide scala
    gnmic -a clab-spine-leaf-bgp-leaf4:57400 set --request-file configs/leaf4-bgp.json
    ```
 
-3. Verify all 8 BGP sessions are established:
+3. Before verifying, examine what the config files applied. Open `gnmic/configs/leaf1-bgp.json` and identify:
+   - **Routing policies:** `import-all`, `export-connected`, and `export-bgp` -- why does a default-deny NOS like SR Linux need all three?
+   - **Prefix-set filter:** `host-subnets` on `export-connected` -- what does `10.20.0.0/16 mask-length-range 24..24` match, and what does it exclude?
+   - **Multipath:** `maximum-paths: 2` under `afi-safi ipv4-unicast` -- what is the SR Linux default, and why does ECMP require changing it?
+
+4. Verify all 8 BGP sessions are established:
    ```bash
    docker exec -it clab-spine-leaf-bgp-leaf1 sr_cli -c "show network-instance default protocols bgp neighbor"
    ```
    Check all 6 devices -- each leaf should have 2 sessions (one per spine), each spine should have 4 sessions (one per leaf).
 
-4. Verify end-to-end connectivity with cross-leaf pings:
+5. Verify end-to-end connectivity with cross-leaf pings:
    ```bash
    docker exec clab-spine-leaf-bgp-host1 ping -c 3 10.20.2.2  # host1 -> host2
    docker exec clab-spine-leaf-bgp-host1 ping -c 3 10.20.3.2  # host1 -> host3
@@ -48,18 +53,26 @@ Complete these exercises to understand how CLOS spine-leaf fabrics provide scala
 
 ## Exercise 2: Read the Fabric Routing Table -- Observe ECMP
 
-**Objective:** Understand equal-cost multipath (ECMP) in a spine-leaf fabric.
+**Objective:** Understand equal-cost multipath (ECMP) in a spine-leaf fabric and the configuration required to enable it.
 
 ### Steps
 
-1. Check leaf1's routing table:
+1. Verify that BGP multipath is configured on leaf1:
+   ```bash
+   docker exec -it clab-spine-leaf-bgp-leaf1 sr_cli -c "info network-instance default protocols bgp afi-safi ipv4-unicast multipath"
+   ```
+   You should see `maximum-paths 2`. SR Linux defaults to `maximum-paths 1` (single best path only). Without this setting, BGP picks one spine and ignores the other -- no ECMP.
+
+2. Check leaf1's routing table:
    ```bash
    docker exec -it clab-spine-leaf-bgp-leaf1 sr_cli -c "show network-instance default route-table ipv4-unicast summary"
    ```
 
-2. Look for routes to other leaves' host subnets (10.20.2.0/24, 10.20.3.0/24, 10.20.4.0/24). Each should show 2 next-hops (ECMP) -- one via each spine.
+3. Look for routes to other leaves' host subnets (10.20.2.0/24, 10.20.3.0/24, 10.20.4.0/24). Each should show 2 next-hops (ECMP) -- one via each spine. The summary at the bottom should show `IPv4 prefixes with active ECMP routes: 3`.
 
-3. Traceroute from host1 to host4 -- run it multiple times:
+4. Verify that only host subnets appear in BGP -- no /31 fabric link prefixes. The `host-subnets` prefix-set on `export-connected` filters these out. Compare leaf1's BGP routes to its local routes to confirm.
+
+5. Traceroute from host1 to host4 -- run it multiple times:
    ```bash
    docker exec clab-spine-leaf-bgp-host1 traceroute -n -w 2 10.20.4.2
    docker exec clab-spine-leaf-bgp-host1 traceroute -n -w 2 10.20.4.2
@@ -67,7 +80,7 @@ Complete these exercises to understand how CLOS spine-leaf fabrics provide scala
    ```
    The path is always 4 hops: host -> leaf1 -> spine -> leaf4 -> host4. But which spine may vary between runs.
 
-4. Answer these questions:
+6. Answer these questions:
    - How many hops between any two hosts? (Always 4: host-leaf-spine-leaf-host)
    - How many equal-cost paths exist between any two leaves? (2, one per spine)
    - What happens to bandwidth if you add a third spine? (50% more aggregate bandwidth, 3 ECMP paths)
