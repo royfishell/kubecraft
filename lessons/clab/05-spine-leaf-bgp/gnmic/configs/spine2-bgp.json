@@ -23,7 +23,7 @@
           {
             "group-name": "leaves",
             "admin-state": "enable",
-            "export-policy": "export-connected"
+            "export-policy": ["export-connected"]
           }
         ],
         "neighbor": [
