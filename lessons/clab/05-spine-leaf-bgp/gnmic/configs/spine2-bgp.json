@@ -47,7 +47,7 @@
       "path": "/network-instance[name=default]/protocols/bgp",
       "value": {
         "admin-state": "enable",
-        "autonomous-system": 65101,
+        "autonomous-system": 65000,
         "router-id": "10.0.1.2",
         "afi-safi": [
           {
