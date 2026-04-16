@@ -172,87 +172,38 @@ docker exec clab-spine-leaf-bgp-host1 ping -c 10 -i 1 10.20.4.2
 
 ---
 
-## Exercise 4 (Challenge): Break/Fix -- Route Leak
+## Extreme Challenge 1: Route Hijack via Longest-Prefix-Match
 
-**Objective:** Observe how a more-specific prefix can hijack traffic in a fabric.
+**Objective:** Demonstrate how a more-specific prefix can hijack traffic in a BGP fabric -- the same mechanism behind real-world BGP hijacking incidents.
 
-### Setup (break it)
+**Scenario:** Leaf4 serves host4 on the 10.20.4.0/24 subnet. Your goal: make leaf1 advertise a more-specific prefix that covers host4's address, causing all other leaves to route host4-bound traffic to leaf1 instead of leaf4. The traffic should be blackholed on leaf1 -- packets go in, nothing comes out.
 
-On leaf1, add a more-specific route that covers leaf4's host subnet:
+You will need to:
+- Create a static route on leaf1 for the hijack prefix with a blackhole next-hop
+- Build a routing policy that exports this prefix to the spines via BGP
+- Replace leaf1's current export policy with your hijack policy (while still advertising leaf1's own legitimate connected routes)
 
-```bash
-docker exec -it clab-spine-leaf-bgp-leaf1 sr_cli
-```
+**Success criteria:**
+- Pings from host2 and host3 to host4 (10.20.4.2) fail with 100% packet loss
+- Routing tables on leaf2 and leaf3 show the rogue prefix alongside the legitimate /24
+- Traceroute from host2 to host4 shows traffic being directed to leaf1 and dying
+- After removing your hijack configuration and restoring the original export policy, connectivity to host4 is fully restored
 
-Inside SR Linux:
-```
-enter candidate
-set / routing-policy prefix-set hijack prefix 10.20.4.0/25 mask-length-range exact
-set / routing-policy policy export-hijack statement 10 match prefix-set hijack
-set / routing-policy policy export-hijack statement 10 action policy-result accept
-set / routing-policy policy export-hijack statement 20 match protocol local
-set / routing-policy policy export-hijack statement 20 action policy-result accept
-set / routing-policy policy export-hijack default-action policy-result reject
-set / network-instance default protocols bgp group spines export-policy [export-hijack]
-set / network-instance default static-routes route 10.20.4.0/25 admin-state enable
-set / network-instance default next-hop-groups group nhg-blackhole admin-state enable
-set / network-instance default next-hop-groups group nhg-blackhole nexthop 1 ip-address 192.0.2.1
-set / network-instance default static-routes route 10.20.4.0/25 next-hop-group nhg-blackhole
-commit now
-exit
-```
+**Hint:** Think about the relationship between /24 and /25 prefix lengths, and review how SR Linux next-hop-groups support blackhole routes. The existing export policy chain (`export-connected`, `export-bgp`) shows the pattern for building policies that match specific routes.
 
-### Symptom
+---
 
-```bash
-# host2 and host3 CANNOT reach host4
-docker exec clab-spine-leaf-bgp-host2 ping -c 3 -W 5 10.20.4.2
-docker exec clab-spine-leaf-bgp-host3 ping -c 3 -W 5 10.20.4.2
+## Extreme Challenge 2: Graceful Spine Maintenance
 
-# Traffic to host4 gets sucked into leaf1's blackhole route
-```
+**Objective:** Take spine1 completely out of service for maintenance with zero packet loss during the transition.
 
-### Your Task
+**Scenario:** In exercise 3, disabling spine1's interfaces caused brief packet loss during BGP convergence. In production, planned maintenance should never drop traffic. Your goal: use BGP mechanisms to gracefully drain all traffic from spine1 before taking it offline. Every leaf must stop sending traffic through spine1 BEFORE any interfaces go down. Only after verifying that zero traffic flows through spine1 should you disable its interfaces.
 
-1. Check routing tables on leaf2 and leaf3 -- look for a /25 route that should not be there:
-   ```bash
-   docker exec -it clab-spine-leaf-bgp-leaf2 sr_cli -c "show network-instance default route-table ipv4-unicast summary"
-   docker exec -it clab-spine-leaf-bgp-leaf3 sr_cli -c "show network-instance default route-table ipv4-unicast summary"
-   ```
+**Success criteria:**
+- Run continuous pings between hosts on different leaves throughout the entire maintenance window. The ping output must show ZERO packet loss -- not "brief loss then recovery" like exercise 3, but truly zero drops
+- After maintenance, re-enable spine1 and verify ECMP paths return to 2 per destination
 
-2. Traceroute from host2 to host4 -- traffic goes to leaf1 (the hijacker) and dies:
-   ```bash
-   docker exec clab-spine-leaf-bgp-host2 traceroute -n -w 2 10.20.4.2
-   ```
-
-3. Identify the rogue /25 prefix and trace it back to leaf1.
-
-4. Fix -- remove the hijack config on leaf1:
-   ```bash
-   docker exec -it clab-spine-leaf-bgp-leaf1 sr_cli
-   ```
-   Inside SR Linux:
-   ```
-   enter candidate
-   delete / routing-policy prefix-set hijack
-   delete / routing-policy policy export-hijack
-   delete / network-instance default static-routes route 10.20.4.0/25
-   delete / network-instance default next-hop-groups group nhg-blackhole
-   set / network-instance default protocols bgp group spines export-policy [export-connected export-bgp]
-   commit now
-   exit
-   ```
-
-5. Verify host4 is reachable again:
-   ```bash
-   docker exec clab-spine-leaf-bgp-host2 ping -c 3 10.20.4.2
-   docker exec clab-spine-leaf-bgp-host3 ping -c 3 10.20.4.2
-   ```
-
-### Deliverables
-
-- Routing table showing the rogue /25 prefix
-- Explanation of longest-prefix-match hijacking: why a /25 wins over a /24 even though the /24 is the legitimate route
+**Note:** There are multiple valid approaches. Research BGP graceful shutdown (RFC 8326) and consider what knobs SR Linux provides for influencing path selection.
 
 ---
 
@@ -281,7 +232,8 @@ pytest tests/ -v
 - [ ] Exercise 1: Deployed fabric, configured eBGP on all 6 routers, verified cross-leaf connectivity
 - [ ] Exercise 2: Read routing tables, observed ECMP paths, ran traceroutes
 - [ ] Exercise 3: Simulated spine failure, observed resilience and ECMP path reduction
-- [ ] Exercise 4: Diagnosed and fixed route leak (longest-prefix-match hijack)
+- [ ] Extreme Challenge 1: Diagnosed and fixed route leak (longest-prefix-match hijack)
+- [ ] Extreme Challenge 2: Drained spine1 gracefully with zero packet loss during maintenance
 
 ## Next Steps
 

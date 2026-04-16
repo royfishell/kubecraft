@@ -262,6 +262,129 @@ containerlab deploy -t exercises/broken-topology.clab.yml
 
 ---
 
+## Extreme Challenge 1: Full-Mesh Topology
+
+A 4-node full mesh has 6 links. Each node connects to 3 others, using one interface per link.
+
+**Interface assignment:**
+
+| Link | Endpoint A | Endpoint B |
+|------|-----------|-----------|
+| srl1-srl2 | srl1:e1-1 | srl2:e1-1 |
+| srl1-srl3 | srl1:e1-2 | srl3:e1-1 |
+| srl1-srl4 | srl1:e1-3 | srl4:e1-1 |
+| srl2-srl3 | srl2:e1-2 | srl3:e1-2 |
+| srl2-srl4 | srl2:e1-3 | srl4:e1-2 |
+| srl3-srl4 | srl3:e1-3 | srl4:e1-3 |
+
+**Topology file (`exercises/full-mesh.clab.yml`):**
+
+```yaml
+name: full-mesh
+
+topology:
+  nodes:
+    srl1:
+      kind: srl
+      image: ghcr.io/nokia/srlinux:24.10.1
+    srl2:
+      kind: srl
+      image: ghcr.io/nokia/srlinux:24.10.1
+    srl3:
+      kind: srl
+      image: ghcr.io/nokia/srlinux:24.10.1
+    srl4:
+      kind: srl
+      image: ghcr.io/nokia/srlinux:24.10.1
+
+  links:
+    - endpoints: ["srl1:e1-1", "srl2:e1-1"]
+    - endpoints: ["srl1:e1-2", "srl3:e1-1"]
+    - endpoints: ["srl1:e1-3", "srl4:e1-1"]
+    - endpoints: ["srl2:e1-2", "srl3:e1-2"]
+    - endpoints: ["srl2:e1-3", "srl4:e1-2"]
+    - endpoints: ["srl3:e1-3", "srl4:e1-3"]
+```
+
+**Deploy and verify:**
+
+```bash
+containerlab deploy -t exercises/full-mesh.clab.yml
+docker exec -it clab-full-mesh-srl1 sr_cli -c "show interface brief"
+docker exec -it clab-full-mesh-srl2 sr_cli -c "show interface brief"
+docker exec -it clab-full-mesh-srl3 sr_cli -c "show interface brief"
+docker exec -it clab-full-mesh-srl4 sr_cli -c "show interface brief"
+```
+
+Each node shows 3 interfaces with `oper: up`. This works for 4 nodes (6 links), but consider what happens with 20 nodes: 190 links. 50 nodes: 1,225 links. This is why data centers use Clos spine-leaf instead of full mesh -- it achieves the same any-to-any connectivity with far fewer links.
+
+---
+
+## Extreme Challenge 2: Startup Config Authoring
+
+**Config files:**
+
+`exercises/configs/node1-config.cli`:
+```
+set / system name host-name lab-router-1
+set / interface ethernet-1/1 admin-state enable
+set / interface ethernet-1/1 subinterface 0 admin-state enable
+set / interface ethernet-1/1 subinterface 0 description "link to lab-router-2"
+set / interface ethernet-1/1 subinterface 0 ipv4 admin-state enable
+set / interface ethernet-1/1 subinterface 0 ipv4 address 10.0.0.1/30
+set / network-instance default interface ethernet-1/1.0
+```
+
+`exercises/configs/node2-config.cli`:
+```
+set / system name host-name lab-router-2
+set / interface ethernet-1/1 admin-state enable
+set / interface ethernet-1/1 subinterface 0 admin-state enable
+set / interface ethernet-1/1 subinterface 0 description "link to lab-router-1"
+set / interface ethernet-1/1 subinterface 0 ipv4 admin-state enable
+set / interface ethernet-1/1 subinterface 0 ipv4 address 10.0.0.2/30
+set / network-instance default interface ethernet-1/1.0
+```
+
+**Topology file (`exercises/startup-config-lab.clab.yml`):**
+
+```yaml
+name: startup-config-lab
+
+topology:
+  nodes:
+    node1:
+      kind: srl
+      image: ghcr.io/nokia/srlinux:24.10.1
+      startup-config: configs/node1-config.cli
+    node2:
+      kind: srl
+      image: ghcr.io/nokia/srlinux:24.10.1
+      startup-config: configs/node2-config.cli
+
+  links:
+    - endpoints: ["node1:e1-1", "node2:e1-1"]
+```
+
+**Deploy and verify (zero post-deploy steps):**
+
+```bash
+containerlab deploy -t exercises/startup-config-lab.clab.yml
+
+# Verify hostname
+docker exec -it clab-startup-config-lab-node1 sr_cli -c "show system information"
+
+# Verify interfaces have IPs and descriptions already applied
+docker exec -it clab-startup-config-lab-node1 sr_cli -c "show interface ethernet-1/1"
+
+# Ping between nodes using pre-configured IPs
+docker exec -it clab-startup-config-lab-node1 sr_cli -c "ping 10.0.0.2 network-instance default"
+```
+
+The startup-config field tells containerlab to apply the CLI commands during container initialization, before SR Linux becomes interactive. This is the foundation for infrastructure-as-code -- all device config is version-controlled in Git, reproducible, and requires zero manual steps. Every lesson from lesson 03 onward uses startup configs for base interface configuration.
+
+---
+
 ## Key Takeaways
 
 1. **Topology files are YAML** -- this means you can version-control your network labs in Git, diff changes between versions, and template them for different environments

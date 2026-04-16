@@ -386,6 +386,26 @@ docker exec clab-dynamic-routing-bgp-host1 ping -c 3 10.1.5.2
 
 ---
 
+## Extreme Challenge 1: Traffic Engineering with AS-Path Prepending
+
+**Objective:** Force BGP to select a longer physical path by manipulating the AS path attribute.
+
+**Scenario:** After completing exercise 2 (direct srl2-srl3 link enabled), traffic from host2 to host3 takes the direct srl2-srl3 path (shorter AS path). Your goal: force this traffic to take the longer path through srl1 instead, using only BGP routing policy. You cannot disable any interfaces or remove any BGP sessions. The only tool at your disposal is AS-path manipulation via export policy on one of the routers.
+
+**Success criteria:** Traceroute from host2 to host3 shows the path going through srl1 (3 router hops instead of 2). BGP route detail on srl2 shows two paths with different AS path lengths. Once verified, remove your policy change and confirm traffic returns to the direct path.
+
+---
+
+## Extreme Challenge 2: Selective Prefix Filtering
+
+**Objective:** Use BGP import policy to selectively reject specific prefixes while accepting all others.
+
+**Scenario:** On srl1, configure an import policy that rejects host2's subnet (10.1.4.0/24) from srl2 while continuing to accept all other routes. srl1 should still learn host3's subnet from srl3 normally.
+
+**Success criteria:** srl1's routing table has no BGP route for 10.1.4.0/24, but host3's subnet still appears as a BGP route. Pings from host1 to host2 fail (no return path via BGP), but pings from host1 to host3 succeed. After verifying, remove the filter and restore full connectivity.
+
+---
+
 ## Cleanup
 
 After completing all exercises:
@@ -414,6 +434,8 @@ pytest tests/ -v
 - [ ] Exercise 4: Observed link failure with automatic reroute (BGP convergence)
 - [ ] Exercise 5: Diagnosed and fixed wrong ASN (peer-as mismatch)
 - [ ] Exercise 6: Diagnosed stale static route masking BGP (administrative distance)
+- [ ] Extreme Challenge 1: Forced BGP path selection with AS-path prepending
+- [ ] Extreme Challenge 2: Selectively filtered a prefix with BGP import policy
 
 ## Next Steps
 

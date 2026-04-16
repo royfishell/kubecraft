@@ -356,6 +356,356 @@ sudo ip netns exec red ping -c 3 8.8.8.8
 
 ---
 
+## Extreme Challenge 1: Selective Namespace Isolation
+
+### Overview
+
+Three namespaces (red, blue, green), each on its own bridge and subnet. A default DROP policy on the FORWARD chain ensures nothing is allowed unless explicitly permitted. Stateful rules (`conntrack`) handle return traffic so that only the initiator direction matters.
+
+### Network Layout
+
+| Namespace | Bridge    | Namespace IP | Bridge IP    | Subnet       |
+|-----------|-----------|-------------|--------------|--------------|
+| red       | br-red    | 10.1.0.1    | 10.1.0.254   | 10.1.0.0/24  |
+| blue      | br-blue   | 10.2.0.1    | 10.2.0.254   | 10.2.0.0/24  |
+| green     | br-green  | 10.3.0.1    | 10.3.0.254   | 10.3.0.0/24  |
+
+### Step 1: Create namespaces
+
+```bash
+sudo ip netns add red
+sudo ip netns add blue
+sudo ip netns add green
+```
+
+### Step 2: Create bridges
+
+```bash
+sudo ip link add br-red type bridge
+sudo ip link set br-red up
+sudo ip addr add 10.1.0.254/24 dev br-red
+
+sudo ip link add br-blue type bridge
+sudo ip link set br-blue up
+sudo ip addr add 10.2.0.254/24 dev br-blue
+
+sudo ip link add br-green type bridge
+sudo ip link set br-green up
+sudo ip addr add 10.3.0.254/24 dev br-green
+```
+
+### Step 3: Wire up each namespace with veth pairs
+
+```bash
+# Red namespace
+sudo ip link add veth-r type veth peer name veth-r-br
+sudo ip link set veth-r netns red
+sudo ip link set veth-r-br master br-red
+sudo ip link set veth-r-br up
+sudo ip netns exec red ip addr add 10.1.0.1/24 dev veth-r
+sudo ip netns exec red ip link set veth-r up
+sudo ip netns exec red ip link set lo up
+
+# Blue namespace
+sudo ip link add veth-b type veth peer name veth-b-br
+sudo ip link set veth-b netns blue
+sudo ip link set veth-b-br master br-blue
+sudo ip link set veth-b-br up
+sudo ip netns exec blue ip addr add 10.2.0.1/24 dev veth-b
+sudo ip netns exec blue ip link set veth-b up
+sudo ip netns exec blue ip link set lo up
+
+# Green namespace
+sudo ip link add veth-g type veth peer name veth-g-br
+sudo ip link set veth-g netns green
+sudo ip link set veth-g-br master br-green
+sudo ip link set veth-g-br up
+sudo ip netns exec green ip addr add 10.3.0.1/24 dev veth-g
+sudo ip netns exec green ip link set veth-g up
+sudo ip netns exec green ip link set lo up
+```
+
+### Step 4: Add default routes in each namespace
+
+Each namespace needs to route non-local traffic through its bridge IP:
+
+```bash
+sudo ip netns exec red ip route add default via 10.1.0.254
+sudo ip netns exec blue ip route add default via 10.2.0.254
+sudo ip netns exec green ip route add default via 10.3.0.254
+```
+
+### Step 5: Enable IP forwarding
+
+```bash
+sudo sysctl -w net.ipv4.ip_forward=1
+```
+
+### Step 6: Configure iptables FORWARD rules
+
+The strategy is:
+
+1. Set the default FORWARD policy to DROP (block everything by default).
+2. Allow return traffic for established connections using conntrack.
+3. Explicitly allow only red-to-blue and blue-to-green as new connections.
+4. Green-to-red is never explicitly allowed, so it hits the DROP policy.
+
+**Important:** Docker may have its own FORWARD rules. We insert our rules at the top of the chain so they are evaluated first.
+
+```bash
+# Allow return traffic for any connection that was already permitted
+sudo iptables -I FORWARD 1 -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# Allow red (br-red) to reach blue (br-blue)
+sudo iptables -I FORWARD 2 -i br-red -o br-blue -j ACCEPT
+
+# Allow blue (br-blue) to reach green (br-green)
+sudo iptables -I FORWARD 3 -i br-blue -o br-green -j ACCEPT
+
+# Set default policy to DROP (block everything not explicitly allowed)
+sudo iptables -P FORWARD DROP
+```
+
+**Why this works:**
+
+- When red pings blue, the packet enters via `br-red` and exits via `br-blue`. Rule 2 matches and accepts it. The reply from blue to red is an ESTABLISHED connection, so rule 1 matches and accepts the return.
+- When blue pings green, the packet enters via `br-blue` and exits via `br-green`. Rule 3 matches. The reply is ESTABLISHED, so rule 1 handles it.
+- When green tries to ping red, the packet enters via `br-green` and exits via `br-red`. No rule matches this combination. It falls through to the DROP policy and is silently discarded. There is no ESTABLISHED state for this flow because green never successfully initiated a connection to red.
+
+### Step 7: Verify the connectivity matrix
+
+```bash
+# Red to blue -- should succeed
+sudo ip netns exec red ping -c 3 10.2.0.1
+```
+
+**Expected output:**
+```
+PING 10.2.0.1 (10.2.0.1) 56(84) bytes of data.
+64 bytes from 10.2.0.1: icmp_seq=1 ttl=63 time=0.060 ms
+64 bytes from 10.2.0.1: icmp_seq=2 ttl=63 time=0.045 ms
+64 bytes from 10.2.0.1: icmp_seq=3 ttl=63 time=0.042 ms
+```
+
+```bash
+# Blue to green -- should succeed
+sudo ip netns exec blue ping -c 3 10.3.0.1
+```
+
+**Expected output:**
+```
+PING 10.3.0.1 (10.3.0.1) 56(84) bytes of data.
+64 bytes from 10.3.0.1: icmp_seq=1 ttl=63 time=0.055 ms
+64 bytes from 10.3.0.1: icmp_seq=2 ttl=63 time=0.043 ms
+64 bytes from 10.3.0.1: icmp_seq=3 ttl=63 time=0.041 ms
+```
+
+```bash
+# Green to red -- should FAIL
+sudo ip netns exec green ping -c 3 -W 2 10.1.0.1
+```
+
+**Expected output:**
+```
+PING 10.1.0.1 (10.1.0.1) 56(84) bytes of data.
+
+--- 10.1.0.1 ping statistics ---
+3 packets transmitted, 0 received, 100% packet loss, time 2003ms
+```
+
+### Step 8: Inspect the rules
+
+```bash
+sudo iptables -L FORWARD -v -n --line-numbers
+```
+
+**Expected output (relevant lines):**
+```
+Chain FORWARD (policy DROP)
+num   pkts bytes target     prot opt in     out     source               destination
+1        6   504 ACCEPT     all  --  *      *       0.0.0.0/0            0.0.0.0/0   ctstate RELATED,ESTABLISHED
+2        3   252 ACCEPT     all  --  br-red br-blue 0.0.0.0/0            0.0.0.0/0
+3        3   252 ACCEPT     all  --  br-blue br-green 0.0.0.0/0          0.0.0.0/0
+```
+
+The conntrack rule (line 1) shows hits from the return traffic of allowed flows. The DROP policy catches everything else, including green-to-red.
+
+### Cleanup
+
+```bash
+sudo ip netns del red
+sudo ip netns del blue
+sudo ip netns del green
+sudo ip link del br-red
+sudo ip link del br-blue
+sudo ip link del br-green
+sudo iptables -D FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+sudo iptables -D FORWARD -i br-red -o br-blue -j ACCEPT
+sudo iptables -D FORWARD -i br-blue -o br-green -j ACCEPT
+sudo iptables -P FORWARD ACCEPT
+```
+
+**Note:** The last command resets the FORWARD policy back to ACCEPT. If Docker is running, Docker will set it back to DROP on its own when it next restarts or creates a network. Check with `sudo iptables -L FORWARD` after cleanup.
+
+---
+
+## Extreme Challenge 2: DIY Port Forwarding
+
+### Overview
+
+This exercise replicates what Docker does when you run `docker run -p 9090:8080 ...`. We run a service inside a network namespace on port 8080 and use iptables DNAT rules to make it reachable from the host on port 9090.
+
+### Prerequisites
+
+You need a namespace connected to a bridge with IP forwarding enabled. You can reuse the setup from Exercise 2 and 3 (red namespace at 10.0.0.1 on br-study), or create a fresh one. The commands below assume the Exercise 2/3 setup is in place.
+
+### Step 1: Verify the namespace and connectivity
+
+```bash
+# Confirm the red namespace exists and has an IP
+sudo ip netns exec red ip addr show veth-r
+```
+
+You should see `10.0.0.1/24` on `veth-r`. If not, rebuild the Exercise 2 setup first.
+
+### Step 2: Start a service inside the namespace
+
+Open a separate terminal and start a simple HTTP server:
+
+```bash
+sudo ip netns exec red python3 -m http.server 8080
+```
+
+This starts a Python HTTP server listening on port 8080 inside the red namespace. Leave this running.
+
+If `python3` is not available, use netcat instead:
+
+```bash
+sudo ip netns exec red sh -c 'while true; do echo -e "HTTP/1.1 200 OK\r\n\r\nHello from namespace" | nc -l -p 8080 -q 1; done'
+```
+
+### Step 3: Verify the service works from inside the namespace
+
+In another terminal:
+
+```bash
+sudo ip netns exec red curl -s http://127.0.0.1:8080
+```
+
+You should see a directory listing (Python) or "Hello from namespace" (netcat). This confirms the service is running.
+
+### Step 4: Ensure IP forwarding and FORWARD rules are in place
+
+```bash
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo iptables -A FORWARD -i br-study -j ACCEPT
+sudo iptables -A FORWARD -o br-study -j ACCEPT
+```
+
+If you already have these from Exercise 3, these commands will add duplicates (harmless but unnecessary). You can check first with `sudo iptables -L FORWARD -v`.
+
+### Step 5: Add DNAT rules for port forwarding
+
+Two rules are needed because Linux processes incoming traffic and locally-originated traffic through different iptables chains:
+
+```bash
+# For traffic arriving from external sources (PREROUTING chain)
+sudo iptables -t nat -A PREROUTING -p tcp --dport 9090 -j DNAT --to-destination 10.0.0.1:8080
+
+# For traffic originating on the host itself, e.g., curl localhost (OUTPUT chain)
+sudo iptables -t nat -A OUTPUT -p tcp --dport 9090 -d 127.0.0.1 -j DNAT --to-destination 10.0.0.1:8080
+```
+
+**Why two rules?**
+
+- **PREROUTING** handles packets arriving from the network (another machine curling your host's IP). These packets enter the network stack from an interface and hit PREROUTING before any routing decision.
+- **OUTPUT** handles packets generated locally on the host. When you run `curl localhost:9090`, the packet is locally generated -- it never traverses PREROUTING. The OUTPUT chain in the nat table is where DNAT must happen for local traffic.
+
+Docker adds both of these rules when you use `-p`.
+
+### Step 6: Add masquerade for return traffic
+
+The namespace needs to know where to send reply packets. With DNAT, the destination gets rewritten, but the source is the host's loopback (127.0.0.1) or external IP. The namespace might not have a route back to those addresses through the bridge. Masquerading on the bridge ensures return traffic flows correctly:
+
+```bash
+sudo iptables -t nat -A POSTROUTING -s 10.0.0.0/24 -o br-study -j MASQUERADE
+```
+
+If you already have the masquerade rule from Exercise 3 for your outbound interface, you may also need this bridge-specific one for traffic that enters the namespace via the bridge and needs to return the same way.
+
+### Step 7: Test from the host
+
+```bash
+curl -s http://localhost:9090
+```
+
+**Expected output (Python HTTP server):**
+```html
+<!DOCTYPE HTML>
+<html lang="en">
+<head>
+...
+<title>Directory listing for /</title>
+...
+```
+
+**Expected output (netcat):**
+```
+Hello from namespace
+```
+
+The request to `localhost:9090` was rewritten by iptables to `10.0.0.1:8080`, forwarded through the bridge into the namespace, and the response came back through the same path. This is exactly what Docker does with `-p 9090:8080`.
+
+### Step 8: Inspect the NAT rules
+
+```bash
+sudo iptables -t nat -L -v -n --line-numbers
+```
+
+**Relevant output:**
+```
+Chain PREROUTING (policy ACCEPT)
+num   pkts bytes target     prot opt in     out     source               destination
+1        0     0 DNAT       tcp  --  *      *       0.0.0.0/0            0.0.0.0/0    tcp dpt:9090 to:10.0.0.1:8080
+
+Chain OUTPUT (policy ACCEPT)
+num   pkts bytes target     prot opt in     out     source               destination
+1        1    60 DNAT       tcp  --  *      *       0.0.0.0/0            127.0.0.1    tcp dpt:9090 to:10.0.0.1:8080
+
+Chain POSTROUTING (policy ACCEPT)
+num   pkts bytes target     prot opt in     out     source               destination
+1        1    60 MASQUERADE all  --  *      br-study 10.0.0.0/24         0.0.0.0/0
+```
+
+Compare this with Docker's NAT rules (`sudo iptables -t nat -L -v -n`) -- you will see Docker creates nearly identical DNAT entries in PREROUTING and OUTPUT for every `-p` mapping.
+
+### How Docker does it
+
+When you run `docker run -p 9090:8080 myimage`, Docker:
+
+1. Creates a network namespace (the container).
+2. Creates a veth pair connecting the namespace to `docker0`.
+3. Assigns an IP to the container (e.g., 172.17.0.2).
+4. Adds a DNAT rule in PREROUTING: `-p tcp --dport 9090 -j DNAT --to-destination 172.17.0.2:8080`.
+5. Adds a DNAT rule in OUTPUT for localhost access.
+6. Adds MASQUERADE and FORWARD rules as needed.
+
+You just did all of this manually. There is no magic -- it is bridges, veth pairs, and iptables NAT rules all the way down.
+
+### Cleanup
+
+Stop the Python HTTP server (Ctrl+C in the terminal where it is running), then remove the iptables rules:
+
+```bash
+sudo iptables -t nat -D PREROUTING -p tcp --dport 9090 -j DNAT --to-destination 10.0.0.1:8080
+sudo iptables -t nat -D OUTPUT -p tcp --dport 9090 -d 127.0.0.1 -j DNAT --to-destination 10.0.0.1:8080
+sudo iptables -t nat -D POSTROUTING -s 10.0.0.0/24 -o br-study -j MASQUERADE
+```
+
+If you are done with all exercises, also clean up the namespaces and bridge from Exercise 2.
+
+---
+
 ## Key Takeaways
 
 1. **Network namespaces** are what isolate container networking -- each container gets its own

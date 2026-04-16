@@ -330,6 +330,26 @@ docker exec clab-routing-basics-host1 ping -c 3 -W 5 10.1.5.2
 
 ---
 
+## Extreme Challenge 1: Create a Routing Loop
+
+**Objective:** Intentionally create a routing loop using static routes and observe how IP's TTL mechanism prevents packets from circling forever.
+
+**Scenario:** Configure static routes on two routers so that traffic for a specific non-existent destination (e.g., 192.168.99.0/24) bounces back and forth between them indefinitely. Run a traceroute to observe the loop in action.
+
+**Success criteria:** Traceroute output showing the same two router IPs alternating until TTL expires. Explain what would happen without TTL and why dynamic routing protocols have built-in loop prevention that static routes lack.
+
+---
+
+## Extreme Challenge 2: Add a Fourth Spoke
+
+**Objective:** Extend the hub-and-spoke topology with a new router and host, achieving full connectivity.
+
+**Scenario:** Add a fourth router (srl4) as a new spoke off the hub (srl1), with its own host (host4) on a new subnet. You must modify the containerlab topology YAML, write the startup config or Ansible vars for the new devices, and add static routes in both directions so that every host can reach every other host.
+
+**Success criteria:** host4 can ping host1, host2, and host3. All original pings still work. Routing tables on all four routers show the new subnet.
+
+---
+
 ## Cleanup
 
 After completing all exercises:
@@ -358,6 +378,8 @@ pytest tests/ -v
 - [ ] Exercise 4: Diagnosed and fixed wrong next-hop (black hole)
 - [ ] Exercise 5: Diagnosed and fixed routing loop (TTL)
 - [ ] Exercise 6: Diagnosed and fixed unreachable next-hop (link down)
+- [ ] Extreme Challenge 1: Created a routing loop and observed TTL behavior
+- [ ] Extreme Challenge 2: Extended topology with a fourth spoke and full connectivity
 
 ## Next Steps
 

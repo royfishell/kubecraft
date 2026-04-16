@@ -622,6 +622,103 @@ After deleting the static route, the BGP route (with the correct next-hop 10.1.2
 
 ---
 
+## Extreme Challenge 1: Traffic Engineering with AS-Path Prepending
+
+The direct path from srl2 to srl3 has AS path [65003] (1 AS hop). The indirect path through srl1 has AS path [65001, 65003] (2 AS hops). BGP's best path algorithm selects the shorter AS path. To override this, make the direct path look longer using AS-path prepending.
+
+**Step 1: On srl3, create an export policy that prepends its own ASN when advertising to srl2.**
+
+```
+docker exec -it clab-dynamic-routing-bgp-srl3 sr_cli
+enter candidate
+set / routing-policy policy as-prepend statement 10 action bgp as-path prepend as-number [65003 65003 65003]
+set / routing-policy policy as-prepend statement 10 action policy-result accept
+set / network-instance default protocols bgp neighbor 10.1.6.1 export-policy [as-prepend]
+commit now
+exit
+```
+
+This makes srl3's advertisements to srl2 carry AS path [65003, 65003, 65003, 65003] (4 AS hops). The path through srl1 still has [65001, 65003] (2 AS hops), so srl2 now prefers the indirect path.
+
+**Step 2: Verify the path change.**
+
+```bash
+docker exec clab-dynamic-routing-bgp-host2 traceroute -n -w 2 10.1.5.2
+```
+
+Before prepending: host2 -> srl2 -> srl3 -> host3 (2 router hops)
+After prepending: host2 -> srl2 -> srl1 -> srl3 -> host3 (3 router hops)
+
+**Step 3: Inspect the BGP route detail on srl2.**
+
+```bash
+docker exec -it clab-dynamic-routing-bgp-srl2 sr_cli -c "show network-instance default protocols bgp routes ipv4 prefix 10.1.5.0/24 detail"
+```
+
+You should see two paths: the direct path with the prepended AS path (longer), and the indirect path through srl1 (shorter, now preferred).
+
+**Step 4: Cleanup -- remove the prepend policy.**
+
+```
+docker exec -it clab-dynamic-routing-bgp-srl3 sr_cli
+enter candidate
+delete / network-instance default protocols bgp neighbor 10.1.6.1 export-policy
+delete / routing-policy policy as-prepend
+commit now
+exit
+```
+
+**Key lesson:** AS-path prepending is the most common BGP traffic engineering tool. It's used in production to influence inbound traffic routing -- ISPs prepend their ASN to make certain peering links less preferred as backup paths. The trade-off: prepending increases the AS path length visible to the entire routing domain, which can have unintended effects on distant routers.
+
+---
+
+## Extreme Challenge 2: Selective Prefix Filtering
+
+**Step 1: Create a prefix-set and import policy on srl1.**
+
+```
+docker exec -it clab-dynamic-routing-bgp-srl1 sr_cli
+enter candidate
+set / routing-policy prefix-set reject-host2 prefix 10.1.4.0/24 mask-length-range exact
+set / routing-policy policy filter-host2 statement 10 match prefix-set reject-host2
+set / routing-policy policy filter-host2 statement 10 action policy-result reject
+set / routing-policy policy filter-host2 default-action policy-result accept
+set / network-instance default protocols bgp neighbor 10.1.2.2 import-policy [filter-host2]
+commit now
+exit
+```
+
+This rejects 10.1.4.0/24 from srl2 while accepting everything else.
+
+**Step 2: Verify the filter.**
+
+```bash
+# Check routing table -- 10.1.4.0/24 should be missing from BGP routes
+docker exec -it clab-dynamic-routing-bgp-srl1 sr_cli -c "show network-instance default route-table ipv4-unicast summary"
+
+# host1 -> host2 fails (srl1 has no route to 10.1.4.0/24)
+docker exec clab-dynamic-routing-bgp-host1 ping -c 3 -W 5 10.1.4.2
+
+# host1 -> host3 still works
+docker exec clab-dynamic-routing-bgp-host1 ping -c 3 10.1.5.2
+```
+
+**Step 3: Cleanup -- restore the original import policy.**
+
+```
+docker exec -it clab-dynamic-routing-bgp-srl1 sr_cli
+enter candidate
+delete / network-instance default protocols bgp neighbor 10.1.2.2 import-policy
+delete / routing-policy policy filter-host2
+delete / routing-policy prefix-set reject-host2
+commit now
+exit
+```
+
+**Key lesson:** Prefix filtering is a fundamental BGP security mechanism. In production, it prevents route leaks (accidentally advertising your internal prefixes to the internet), blocks bogon prefixes (RFC 1918, default route), and enforces peering agreements. This is the same concept behind RPKI -- validating that the AS originating a prefix is authorized to advertise it.
+
+---
+
 ## Key Takeaways
 
 1. **Dynamic routing replaces manual route management with automatic route exchange** -- routers learn about remote subnets from their BGP peers instead of relying on hand-configured static routes

@@ -330,7 +330,7 @@ After BGP converges (a few seconds), the routing table returns to 2 ECMP next-ho
 
 ---
 
-## Exercise 4 (Challenge): Break/Fix -- Route Leak
+## Extreme Challenge 1: Route Hijack via Longest-Prefix-Match
 
 **Step 1: After injecting the rogue /25 prefix on leaf1, check leaf2's routing table.**
 
@@ -376,7 +376,7 @@ traceroute to 10.20.4.2 (10.20.4.2), 30 hops max, 60 byte packets
  4  *  *  *
 ```
 
-Traffic reaches leaf1 at hop 3, then disappears into the blackhole. leaf1 has a static route for 10.20.4.0/25 pointing at 192.0.2.1 (a nonexistent address), so the packet is dropped.
+Traffic reaches leaf1 at hop 3, then disappears into the blackhole. leaf1 has a static route for 10.20.4.0/25 with a blackhole next-hop-group, so the packet is silently dropped.
 
 **Why longest-prefix-match causes this:** When the router looks up destination 10.20.4.2, it finds two matching prefixes:
 
@@ -427,6 +427,88 @@ After removing the rogue prefix-set, export policy, static route, and blackhole 
 
 ---
 
+## Extreme Challenge 2: Graceful Spine Maintenance
+
+The cleanest approach is to lower LOCAL_PREF on spine1's advertisements so all leaves prefer spine2.
+
+**Step 1: Create a policy on spine1 that sets low LOCAL_PREF on all exported routes.**
+
+```
+enter candidate
+set / routing-policy policy drain statement 10 action bgp local-preference set 0
+set / routing-policy policy drain statement 10 action policy-result accept
+```
+
+**Step 2: Apply the drain policy to spine1's export to all leaves.**
+
+```
+set / network-instance default protocols bgp group leaves export-policy [drain]
+commit now
+```
+
+**Step 3: Wait for BGP convergence (a few seconds).**
+
+Check leaf routing tables -- all routes should now show only spine2 as next-hop because spine1's routes have LOCAL_PREF 0, which loses to spine2's default LOCAL_PREF 100:
+
+```bash
+$ docker exec -it clab-spine-leaf-bgp-leaf1 sr_cli -c "show network-instance default route-table ipv4-unicast summary"
+```
+
+Every remote host subnet should now show a single next-hop via spine2 only.
+
+**Step 4: Verify with continuous ping -- zero loss during the drain.**
+
+```bash
+$ docker exec clab-spine-leaf-bgp-host1 ping -c 30 -i 1 10.20.4.2
+PING 10.20.4.2 (10.20.4.2): 56 data bytes
+64 bytes from 10.20.4.2: seq=0 ttl=61 time=2.345 ms
+64 bytes from 10.20.4.2: seq=1 ttl=61 time=1.234 ms
+...
+64 bytes from 10.20.4.2: seq=29 ttl=61 time=1.567 ms
+--- 10.20.4.2 ping statistics ---
+30 packets transmitted, 30 packets received, 0% packet loss
+```
+
+Zero packet loss because traffic shifted to spine2 BEFORE any interfaces went down.
+
+**Step 5: Now safely disable spine1's interfaces (no traffic flowing through them).**
+
+```
+set / interface ethernet-1/1 admin-state disable
+set / interface ethernet-1/2 admin-state disable
+set / interface ethernet-1/3 admin-state disable
+set / interface ethernet-1/4 admin-state disable
+commit now
+```
+
+**Step 6: Perform maintenance...**
+
+**Step 7: Re-enable interfaces and restore original export policy.**
+
+```
+set / interface ethernet-1/1 admin-state enable
+set / interface ethernet-1/2 admin-state enable
+set / interface ethernet-1/3 admin-state enable
+set / interface ethernet-1/4 admin-state enable
+set / network-instance default protocols bgp group leaves export-policy [export-connected export-bgp]
+delete / routing-policy policy drain
+commit now
+```
+
+**Step 8: Verify ECMP returns to 2 paths per destination.**
+
+```bash
+$ docker exec -it clab-spine-leaf-bgp-leaf1 sr_cli -c "show network-instance default route-table ipv4-unicast summary"
+```
+
+Each remote host subnet should once again show 2 next-hops (one via each spine).
+
+**Alternative approach: RFC 8326 GRACEFUL_SHUTDOWN community.** If SR Linux supports it, setting the well-known community GRACEFUL_SHUTDOWN on advertisements tells receiving routers to prefer other paths. The effect is the same as lowering LOCAL_PREF, but it is the standards-based approach.
+
+**Key insight:** Planned maintenance should never cause packet loss. The pattern is always: drain traffic first, THEN take the device offline. This applies to routers, load balancers, Kubernetes nodes (`kubectl drain`), and any stateful network device.
+
+---
+
 ## Key Takeaways
 
 1. **Clos spine-leaf architecture eliminates the hub bottleneck** -- every leaf connects to every spine, creating multiple equal-cost paths and removing single points of failure at the spine tier
@@ -436,3 +518,4 @@ After removing the rogue prefix-set, export policy, static route, and blackhole 
 5. **RFC 7938 eBGP is the data center standard** -- spines share a single ASN, each leaf gets its own, and every spine-leaf link is eBGP
 6. **Path symmetry is a Clos property** -- every host pair is exactly 4 hops apart (host-leaf-spine-leaf-host), regardless of which leaves they connect to; this predictable latency simplifies application design
 7. **Longest-prefix-match can be weaponized** -- a more-specific prefix hijacks traffic from a less-specific one, which is why production fabrics need strict route filtering and prefix validation
+8. **Graceful maintenance means draining before disabling** -- use BGP mechanisms (LOCAL_PREF, GRACEFUL_SHUTDOWN community) to shift traffic away from a device before taking it offline, achieving zero packet loss during planned maintenance

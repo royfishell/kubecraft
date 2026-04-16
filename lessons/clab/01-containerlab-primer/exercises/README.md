@@ -301,6 +301,26 @@ docker exec -it clab-broken-lab-srl1 sr_cli -c "show interface brief"
 
 ---
 
+## Extreme Challenge 1: Full-Mesh Topology
+
+**Objective:** Design and deploy a 4-node SR Linux full mesh from scratch.
+
+**Scenario:** Create a topology file with 4 SR Linux nodes where every node is directly connected to every other node. That means 6 links total. Choose your own interface assignments, ensuring no conflicts. Write the complete YAML from an empty file -- do not copy an existing topology.
+
+**Success criteria:** All 4 nodes running, all 6 links showing `oper: up` on both sides, verified via `show interface brief` on each node. Each node should have exactly 3 interfaces up.
+
+---
+
+## Extreme Challenge 2: Startup Config Authoring
+
+**Objective:** Write SR Linux startup configuration files from scratch and deploy a topology that boots fully configured.
+
+**Scenario:** Create a 2-node topology where each SR Linux node boots with a startup config that pre-configures: interface IPs, interface descriptions, and a custom system hostname. Use the `startup-config` field in the topology YAML to reference your config files. When the lab deploys, the interfaces should already have IPs assigned -- no manual CLI or gNMIc needed post-deploy.
+
+**Success criteria:** Deploy the lab and immediately (with zero post-deploy steps) verify that `show interface brief` shows configured IPs and descriptions, and `show system information` shows your custom hostnames. Ping between nodes using the IPs you assigned in the startup configs.
+
+---
+
 ## Cleanup
 
 After completing all exercises:
@@ -330,6 +350,8 @@ pytest tests/ -v
 - [ ] Exercise 5: Created mixed network/Linux topology
 - [ ] Exercise 6: Diagnosed and fixed a stopped container
 - [ ] Exercise 7: Diagnosed and fixed a missing link
+- [ ] Extreme Challenge 1: Built and deployed a 4-node full-mesh topology
+- [ ] Extreme Challenge 2: Authored startup configs with pre-applied IPs and hostnames
 
 ## Next Steps
 

@@ -372,6 +372,165 @@ PING 10.1.5.2 (10.1.5.2): 56 data bytes
 
 ---
 
+## Extreme Challenge 1: Create a Routing Loop
+
+**Step 1: Add conflicting static routes for a non-existent destination.**
+
+On srl1, point 192.168.99.0/24 at srl2:
+```
+docker exec -it clab-routing-basics-srl1 sr_cli
+enter candidate
+set / network-instance default next-hop-groups group nhg-loop admin-state enable
+set / network-instance default next-hop-groups group nhg-loop nexthop 1 ip-address 10.1.2.2
+set / network-instance default static-routes route 192.168.99.0/24 admin-state enable
+set / network-instance default static-routes route 192.168.99.0/24 next-hop-group nhg-loop
+commit now
+exit
+```
+
+On srl2, point 192.168.99.0/24 back at srl1:
+```
+docker exec -it clab-routing-basics-srl2 sr_cli
+enter candidate
+set / network-instance default next-hop-groups group nhg-loop admin-state enable
+set / network-instance default next-hop-groups group nhg-loop nexthop 1 ip-address 10.1.2.1
+set / network-instance default static-routes route 192.168.99.0/24 admin-state enable
+set / network-instance default static-routes route 192.168.99.0/24 next-hop-group nhg-loop
+commit now
+exit
+```
+
+**Step 2: Observe the loop with traceroute.**
+
+```bash
+docker exec clab-routing-basics-host1 traceroute -n -w 2 192.168.99.1
+```
+
+Output shows the same two IPs alternating:
+```
+ 1  10.1.1.1     (srl1)
+ 2  10.1.2.2     (srl2)
+ 3  10.1.2.1     (srl1)
+ 4  10.1.2.2     (srl2)
+ 5  10.1.2.1     (srl1)
+ ...
+30  *  *  *
+```
+
+Each hop decrements TTL by 1. When TTL reaches 0, the router drops the packet and sends ICMP Time Exceeded back to the source. Without TTL, the packet would loop forever, consuming bandwidth and router CPU on every pass.
+
+**Step 3: Cleanup.**
+
+```
+docker exec -it clab-routing-basics-srl1 sr_cli
+enter candidate
+delete / network-instance default static-routes route 192.168.99.0/24
+delete / network-instance default next-hop-groups group nhg-loop
+commit now
+exit
+```
+
+Repeat on srl2.
+
+**Key lesson:** Static routes have no loop prevention. Each router trusts its table blindly and forwards without checking if the packet has been here before. TTL is the only safety net. Dynamic routing protocols (BGP, OSPF) prevent loops through mechanisms like AS-path loop detection and shortest-path-first calculations.
+
+---
+
+## Extreme Challenge 2: Add a Fourth Spoke
+
+**Step 1: Modify the topology to add srl4 and host4.**
+
+Add to `topology/lab.clab.yml`:
+```yaml
+# Under nodes:
+    srl4:
+      kind: srl
+      image: ghcr.io/nokia/srlinux:24.10.1
+      mgmt-ipv4: 172.20.20.14
+
+    host4:
+      kind: linux
+      image: alpine:3.20
+      exec:
+        - apk add --no-cache iputils traceroute
+        - ip link set eth1 up
+        - ip addr add 10.1.7.2/24 dev eth1
+        - ip route delete default
+        - ip route add default via 10.1.7.1 dev eth1
+
+# Under links:
+    - endpoints: ["srl1:e1-4", "srl4:e1-1"]
+    - endpoints: ["srl4:e1-2", "host4:eth1"]
+```
+
+**Step 2: Create Ansible configuration for srl4.**
+
+`ansible/host_vars/srl4.yml`:
+```yaml
+---
+interfaces:
+  - name: ethernet-1/1
+    ipv4_address: 10.1.6.2/24
+    description: Link to srl1
+  - name: ethernet-1/2
+    ipv4_address: 10.1.7.1/24
+    description: Link to host4
+
+static_routes:
+  - prefix: 10.1.1.0/24
+    next_hop: 10.1.6.1
+    description: host1 subnet via srl1
+  - prefix: 10.1.4.0/24
+    next_hop: 10.1.6.1
+    description: host2 subnet via srl1
+  - prefix: 10.1.5.0/24
+    next_hop: 10.1.6.1
+    description: host3 subnet via srl1
+```
+
+**Step 3: Update srl1 configuration.**
+
+Add to `ansible/host_vars/srl1.yml`:
+```yaml
+# New interface
+  - name: ethernet-1/4
+    ipv4_address: 10.1.6.1/24
+    description: Link to srl4
+
+# New static route
+  - prefix: 10.1.7.0/24
+    next_hop: 10.1.6.2
+    description: host4 subnet via srl4
+```
+
+Also add to srl2 and srl3's static routes so they can reach host4 through srl1:
+```yaml
+  - prefix: 10.1.7.0/24
+    next_hop: <srl1-link-ip>
+    description: host4 subnet via srl1
+```
+
+**Step 4: Add srl4 to the Ansible inventory and redeploy.**
+
+```bash
+containerlab destroy -t topology/lab.clab.yml --cleanup
+containerlab deploy -t topology/lab.clab.yml
+cd ansible && ansible-playbook -i inventory.yml playbook.yml
+```
+
+**Step 5: Verify full connectivity.**
+
+```bash
+docker exec clab-routing-basics-host4 ping -c 3 10.1.1.2   # host4 -> host1
+docker exec clab-routing-basics-host4 ping -c 3 10.1.4.2   # host4 -> host2
+docker exec clab-routing-basics-host4 ping -c 3 10.1.5.2   # host4 -> host3
+docker exec clab-routing-basics-host1 ping -c 3 10.1.7.2   # host1 -> host4
+```
+
+**Key lesson:** Adding a single spoke to a hub-and-spoke network requires touching every router -- srl4 needs routes to all existing subnets, srl1 needs a route to the new subnet, and every other spoke (srl2, srl3) needs a route to the new subnet through the hub. This is the static routing scaling problem that motivates dynamic routing in Lesson 4.
+
+---
+
 ## Key Takeaways
 
 1. **Routing tables are per-hop** -- each router makes an independent forwarding decision based only on its own table

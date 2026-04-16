@@ -370,6 +370,47 @@ docker compose down
 
 ---
 
+## Extreme Challenge 1: Selective Namespace Isolation
+
+**Objective:** Enforce directional connectivity rules between three network namespaces using iptables.
+
+### Scenario
+
+You have three teams -- red, blue, and green -- each on its own subnet with its own bridge. The security policy is:
+
+- Red can reach blue.
+- Blue can reach green.
+- Green cannot reach red.
+
+Create three network namespaces (red, blue, green), each attached to a dedicated bridge on a different subnet. Then write iptables rules that enforce the connectivity matrix above. Return traffic for allowed flows must work (e.g., blue can reply to red's ping), but green must never be able to initiate a connection to red.
+
+### Success Criteria
+
+- `ping` from the red namespace to the blue namespace succeeds.
+- `ping` from the blue namespace to the green namespace succeeds.
+- `ping` from the green namespace to the red namespace fails.
+- You can explain which iptables rules enforce the directional policy and why return traffic is handled correctly for the allowed flows.
+
+---
+
+## Extreme Challenge 2: DIY Port Forwarding
+
+**Objective:** Replicate Docker's `-p` port mapping from scratch using only Linux networking primitives.
+
+### Scenario
+
+Docker's `-p 9090:8080` flag makes a service running inside a container accessible on the host at a different port. Under the hood, this is just iptables NAT rules and IP forwarding -- nothing magical.
+
+Your task: run a simple network service (such as a netcat listener or a Python HTTP server) inside a network namespace. Then, using only iptables and standard Linux networking commands, make that service accessible from the host machine on a different port -- no Docker involved.
+
+### Success Criteria
+
+- A service is listening inside a network namespace on one port.
+- From the host, `curl http://localhost:<host-port>` (or an equivalent `nc` command) successfully reaches the service running inside the namespace on its different internal port.
+- You can explain which iptables rules make this work and how they mirror what Docker does with `-p`.
+
+---
+
 ## Completion Checklist
 
 - [ ] Exercise 1: Inspected Docker's bridge, veth pairs, and container networking
@@ -378,6 +419,8 @@ docker compose down
 - [ ] Exercise 4: Diagnosed and fixed a downed bridge
 - [ ] Exercise 5: Diagnosed and fixed missing masquerade rule
 - [ ] Bonus: Explored Docker Compose's bridge network
+- [ ] Extreme Challenge 1: Enforced directional connectivity between three namespaces
+- [ ] Extreme Challenge 2: Replicated Docker's port mapping with iptables NAT
 
 ## Next Steps
 

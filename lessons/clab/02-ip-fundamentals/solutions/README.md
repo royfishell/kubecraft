@@ -208,6 +208,113 @@ Now any traffic not matching 10.1.1.0/24 goes to 10.1.1.1 (srl1). Since srl1 has
 
 ---
 
+## Extreme Challenge 1: IP Scheme Design and Deployment
+
+**Step 1: Design the addressing plan from 10.99.0.0/16.**
+
+Example scheme:
+
+| Segment | Subnet | srl/host IP | Description |
+|---------|--------|-------------|-------------|
+| srl1-srl2 link | 10.99.0.0/31 | srl1=10.99.0.0, srl2=10.99.0.1 | Router-to-router point-to-point |
+| host1 segment | 10.99.1.0/24 | srl1=10.99.1.1, host1=10.99.1.2 | srl1 host-facing |
+| host2 segment | 10.99.2.0/24 | srl2=10.99.2.1, host2=10.99.2.2 | srl2 host-facing |
+
+Using /31 for point-to-point links is standard practice (RFC 3021) -- zero wasted addresses. Using /24 for host segments leaves room for growth.
+
+**Step 2: Update Ansible host_vars.**
+
+`ansible/host_vars/srl1.yml`:
+```yaml
+interfaces:
+  - name: ethernet-1/1
+    ipv4_address: 10.99.0.0/31
+    description: to srl2
+  - name: ethernet-1/2
+    ipv4_address: 10.99.1.1/24
+    description: to host1
+```
+
+`ansible/host_vars/srl2.yml`:
+```yaml
+interfaces:
+  - name: ethernet-1/1
+    ipv4_address: 10.99.0.1/31
+    description: to srl1
+  - name: ethernet-1/2
+    ipv4_address: 10.99.2.1/24
+    description: to host2
+```
+
+**Step 3: Update the topology file host IP assignments.**
+
+In `topology/lab.clab.yml`, update the host exec commands:
+```yaml
+host1:
+  kind: linux
+  image: alpine:3.20
+  exec:
+    - ip addr add 10.99.1.2/24 dev eth1
+    - ip route add default via 10.99.1.1
+
+host2:
+  kind: linux
+  image: alpine:3.20
+  exec:
+    - ip addr add 10.99.2.2/24 dev eth1
+    - ip route add default via 10.99.2.1
+```
+
+**Step 4: Redeploy and verify.**
+
+```bash
+containerlab destroy -t topology/lab.clab.yml --cleanup
+containerlab deploy -t topology/lab.clab.yml
+cd ansible && ansible-playbook -i inventory.yml playbook.yml
+docker exec clab-ip-fundamentals-host1 ping -c 3 10.99.1.1
+docker exec clab-ip-fundamentals-host1 ping -c 3 10.99.2.2
+```
+
+---
+
+## Extreme Challenge 2: Duplicate IP Conflict
+
+**Step 1: Create the conflict.**
+
+```bash
+docker exec clab-ip-fundamentals-host2 ip addr del 10.1.3.2/24 dev eth1
+docker exec clab-ip-fundamentals-host2 ip addr add 10.1.1.2/24 dev eth1
+```
+
+Now both host1 and host2 claim to be 10.1.1.2.
+
+**Step 2: Observe the broken behavior.**
+
+```bash
+docker exec -it clab-ip-fundamentals-srl1 sr_cli -c "ping 10.1.1.2 network-instance default count 5"
+```
+
+Results are unpredictable. Some pings may succeed, some may fail, and the responding host may change between attempts.
+
+**Step 3: Diagnose with ARP tables.**
+
+```bash
+docker exec -it clab-ip-fundamentals-srl1 sr_cli -c "show arpnd arp-entries"
+```
+
+The ARP entry for 10.1.1.2 may show different MAC addresses at different times -- both host1 and host2 respond to ARP requests for this IP. The last ARP reply to arrive wins, so the MAC address flaps between the two hosts.
+
+**Step 4: Fix by restoring host2's original IP.**
+
+```bash
+docker exec clab-ip-fundamentals-host2 ip addr del 10.1.1.2/24 dev eth1
+docker exec clab-ip-fundamentals-host2 ip addr add 10.1.3.2/24 dev eth1
+```
+
+**Key lesson:** Duplicate IPs cause ARP table flapping -- both hosts respond to ARP requests for the same IP, and the last response wins. This makes connectivity unpredictable and is one of the most common Layer 2/3 debugging scenarios in production networks. The diagnostic clue is always in the ARP table: if a MAC address keeps changing for the same IP, you have a duplicate.
+
+---
+
 ## Key Takeaways
 
 1. **Subnet masks determine locality** -- two devices must be on the same subnet to communicate directly at Layer 2

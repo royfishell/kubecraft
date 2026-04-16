@@ -248,6 +248,26 @@ Explain the difference between local and remote subnets, and why gateways are ne
 
 ---
 
+## Extreme Challenge 1: IP Scheme Design and Deployment
+
+**Objective:** Design a complete IP addressing plan from a single allocation and deploy it.
+
+**Scenario:** You have been allocated 10.99.0.0/16. Design an addressing scheme for the existing 2-router, 2-host topology using this address space. Use /31 subnets for the router-to-router link and /24 subnets for the host-facing segments. Modify the Ansible host_vars files to use your new scheme, update the topology file's host IP assignments, and redeploy.
+
+**Success criteria:** All pings between hosts and routers succeed using your new IP scheme. The routing table shows your custom subnets. No overlap between any subnets.
+
+---
+
+## Extreme Challenge 2: Duplicate IP Conflict
+
+**Objective:** Diagnose and resolve an IP address conflict between two hosts.
+
+**Scenario:** Reconfigure host2 to use the same IP address as host1. Observe what happens when both hosts claim the same address on different segments. Use ARP tables on the routers and hosts to diagnose the conflict. Determine which host is actually receiving traffic and why the behavior is unpredictable. Fix the conflict by restoring host2's original address.
+
+**Success criteria:** Demonstrate the broken state (inconsistent ping results, flapping ARP entries), explain why duplicate IPs cause unpredictable behavior at the ARP level, and restore correct connectivity.
+
+---
+
 ## Cleanup
 
 After completing all exercises:
@@ -276,6 +296,8 @@ pytest tests/ -v
 - [ ] Exercise 4: Diagnosed and fixed admin-disabled interface
 - [ ] Exercise 5: Diagnosed and fixed subnet mismatch
 - [ ] Exercise 6: Diagnosed and fixed missing default route
+- [ ] Extreme Challenge 1: Designed and deployed a custom IP scheme from 10.99.0.0/16
+- [ ] Extreme Challenge 2: Diagnosed and fixed a duplicate IP conflict
 
 ## Next Steps
 
