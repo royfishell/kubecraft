@@ -147,7 +147,7 @@ docker exec -it clab-first-lab-srl1 sr_cli
 # Inside SR Linux
 A:srl1# show version
 A:srl1# show interface brief
-A:srl1# exit
+A:srl1# quit
 ```
 
 **Generate topology diagram:**
