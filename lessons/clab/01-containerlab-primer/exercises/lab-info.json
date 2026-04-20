@@ -1,0 +1,46 @@
+{
+  "three-lab": [
+    {
+      "lab_name": "three-lab",
+      "labPath": "exercises/three-node.clab.yaml",
+      "absLabPath": "/home/roy/Repos/github.com/royfishell/kubecraft-container-networking/lessons/clab/01-containerlab-primer/exercises/three-node.clab.yaml",
+      "name": "clab-three-lab-srl1",
+      "container_id": "bfd00eec6fdc",
+      "image": "ghcr.io/nokia/srlinux:24.10.1",
+      "kind": "srl",
+      "state": "running",
+      "status": "Up 8 minutes",
+      "ipv4_address": "172.20.20.4/24",
+      "ipv6_address": "3fff:172:20:20::4/64",
+      "owner": "roy"
+    },
+    {
+      "lab_name": "three-lab",
+      "labPath": "exercises/three-node.clab.yaml",
+      "absLabPath": "/home/roy/Repos/github.com/royfishell/kubecraft-container-networking/lessons/clab/01-containerlab-primer/exercises/three-node.clab.yaml",
+      "name": "clab-three-lab-srl2",
+      "container_id": "9efc0a2d63df",
+      "image": "ghcr.io/nokia/srlinux:24.10.1",
+      "kind": "srl",
+      "state": "running",
+      "status": "Up 8 minutes",
+      "ipv4_address": "172.20.20.2/24",
+      "ipv6_address": "3fff:172:20:20::2/64",
+      "owner": "roy"
+    },
+    {
+      "lab_name": "three-lab",
+      "labPath": "exercises/three-node.clab.yaml",
+      "absLabPath": "/home/roy/Repos/github.com/royfishell/kubecraft-container-networking/lessons/clab/01-containerlab-primer/exercises/three-node.clab.yaml",
+      "name": "clab-three-lab-srl3",
+      "container_id": "e7e9e4a3eab7",
+      "image": "ghcr.io/nokia/srlinux:24.10.1",
+      "kind": "srl",
+      "state": "running",
+      "status": "Up 8 minutes",
+      "ipv4_address": "172.20.20.3/24",
+      "ipv6_address": "3fff:172:20:20::3/64",
+      "owner": "roy"
+    }
+  ]
+}
