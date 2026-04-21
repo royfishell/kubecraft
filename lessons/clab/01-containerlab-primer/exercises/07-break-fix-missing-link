@@ -1,0 +1,7 @@
+# Lesson 1 Exercise 7 -- Break/Fix Missing Links
+
+A node being "running" means that the device is powered on.
+
+An interface being "up" means that it's plugged in.
+
+This would be like having a host powered on, another host powered on nearby, but forgetting to plug in the Ethernet cable.
