@@ -1,2 +1,11 @@
 7[r[999;999H[6n8
-Error: Failed to parse value 'l0' for key 'name' (node 'interface') - Invalid value "l0": Must be a string with length 3..20
+lo0 is up, speed None, type None
+  lo0.0 is up
+    Network-instances:
+      * Name: default (default)
+    Encapsulation   : null
+    Type            : None
+    IPv4 addr    : 10.10.10.1/32 (static, preferred, primary)
+
+
+Parsing error: Unknown token 'commit'. Options are ['!', '#', '/', 'acl', 'back', 'bash', 'bfd', 'cls', 'date', 'diff', 'echo', 'enter', 'environment', 'exit', 'file', 'help', 'history', 'info', 'interface', 'list', 'monitor', 'network-instance', 'passwd', 'ping', 'ping6', 'platform', 'pwc', 'qos', 'quit', 'references', 'routing-policy', 'save', 'show', 'source', 'ssh', 'system', 'tcptraceroute', 'tech-support', 'tools', 'traceroute', 'traceroute6', 'tree', 'tunnel', 'tunnel-interface', 'watch', '{']
